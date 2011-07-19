@@ -42,7 +42,7 @@ object ResponseDecoder {
     val readLength = readUntil(" ", "\r\n") map { decodeDecimalInt(_) }
     val readCas = choice(
       " "    -> (readLine map { cas => Some(decodeDecimalInt(cas)) }),
-      "\r\n" -> const(None)
+      "\r\n" -> success(None)
     )
 
     for {
@@ -55,9 +55,7 @@ object ResponseDecoder {
   }
 
   val readValues = {
-    val readRest = repeatTo("END\r\n") {
-      guard("VALUE ") { readValue }
-    }
+    val readRest = repsep(accept("VALUE ") append readValue, not(guard("END\r\n")))
 
     readValue flatMap { first =>
       readRest map { rest => Values(first :: rest) }
@@ -69,9 +67,7 @@ object ResponseDecoder {
   }
 
   val readStats = {
-    val readRest = repeatTo("END\r\n") {
-      guard("STAT ") { readStat }
-    }
+    val readRest = repsep(accept("STAT ") append readStat, not(guard("END\r\n")))
 
     readStat flatMap { first =>
       readRest map { rest => Stats(first :: rest) }
@@ -82,21 +78,21 @@ object ResponseDecoder {
 
   val readResponse = choice(
     // errors
-    "ERROR\r\n"     -> const(Error("")),
+    "ERROR\r\n"     -> success(Error("")),
     "SERVER_ERROR " -> readErrorCause,
     "CLIENT_ERROR " -> readErrorCause,
 
     // storage responses
-    "STORED\r\n"     -> const(Stored()),
-    "NOT_STORED\r\n" -> const(NotStored()),
-    "DELETED\r\n"    -> const(Deleted()),
-    "NOT_FOUND\r\n"  -> const(NotFound()),
-    "EXISTS\r\n"     -> const(Exists()),
+    "STORED\r\n"     -> success(Stored()),
+    "NOT_STORED\r\n" -> success(NotStored()),
+    "DELETED\r\n"    -> success(Deleted()),
+    "NOT_FOUND\r\n"  -> success(NotFound()),
+    "EXISTS\r\n"     -> success(Exists()),
 
     // retrieval responses
     "VALUE "   -> readValues,
     "STAT "    -> readStats,
-    "END\r\n"  -> const(EmptyResult()),
+    "END\r\n"  -> success(EmptyResult()),
     "VERSION " -> readVersion
   )
 

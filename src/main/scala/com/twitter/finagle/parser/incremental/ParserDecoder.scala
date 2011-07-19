@@ -14,9 +14,13 @@ class ParserDecoder[+Output](parser: Parser[Output]) extends FrameDecoder {
 
   def decode(ctx: ChannelHandlerContext, channel: Channel, buffer: ChannelBuffer) = {
     state.decode(buffer) match {
-      case e: Throw => {
+      case e: Fail => {
         start()
-        throw e.err
+        throw e.ex
+      }
+      case e: Error => {
+        start()
+        throw e.ex
       }
       case Return(out) => {
         start()

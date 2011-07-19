@@ -2,7 +2,7 @@ package com.twitter.finagle.redis.protocol
 
 import org.specs.Specification
 import org.jboss.netty.buffer.{ChannelBuffers, ChannelBuffer}
-import com.twitter.finagle.parser.incremental.{Return, Throw, Continue}
+import com.twitter.finagle.parser.incremental.{Return, Fail, Continue}
 import com.twitter.finagle.parser.test._
 
 

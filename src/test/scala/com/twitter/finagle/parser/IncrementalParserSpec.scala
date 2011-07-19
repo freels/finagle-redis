@@ -37,25 +37,25 @@ object ParserSpec extends ParserSpecification {
     input.readerIndex mustEqual FixedBytesParser.ChunkSize
   }
 
-  "ChainedParser" in {
-    val first  = readByte
-    val next   = readUnsignedByte
-    val parser = new ChainedParser(first, next)
+  // "ChainedParser" in {
+  //   val first  = readByte
+  //   val next   = readUnsignedByte
+  //   val parser = new ChainedParser(first, next)
 
-    parser mustParse ""   andContinue(parser)
-    parser mustParse "x"  andContinue(next)
-    parser mustParse "xx" andReturn()
-  }
+  //   parser mustParse ""   andContinue(parser)
+  //   parser mustParse "x"  andContinue(next)
+  //   parser mustParse "xx" andReturn()
+  // }
 
-  "BacktrackingParser" in {
-    val parser = guard("xx") { Parsers.fail(new ParseException("whoops")) }
-    val backtracking = new BacktrackingParser(parser)
+  // "BacktrackingParser" in {
+  //   val parser = guard("xx") { Parsers.fail(new ParseException("whoops")) }
+  //   val backtracking = new BacktrackingParser(parser)
 
-    parser       mustParse "xxy" andThrow() readingBytes(2)
-    backtracking mustParse "xxy" andThrow() readingBytes(0)
+  //   parser       mustParse "xxy" andFail() readingBytes(2)
+  //   backtracking mustParse "xxy" andFail() readingBytes(0)
 
-    backtracking or const("foo") mustParse "xxy" andReturn("foo") readingBytes(0)
-  }
+  //   backtracking or const("foo") mustParse "xxy" andReturn("foo") readingBytes(0)
+  // }
 
   "Parsers" in {
     "readTo" in {
@@ -72,13 +72,13 @@ object ParserSpec extends ParserSpecification {
     "fail" in {
       val err = new ParseException("whoops")
 
-      Parsers.fail(err) mustParse ""    andThrow err readingBytes(0)
-      Parsers.fail(err) mustParse "foo" andThrow err readingBytes(0)
+      Parsers.fail(err) mustParse ""    andFail err readingBytes(0)
+      Parsers.fail(err) mustParse "foo" andFail err readingBytes(0)
     }
 
-    "const" in {
-      const("as always") mustParse ""     andReturn "as always" readingBytes(0)
-      const("as always") mustParse "blah" andReturn "as always" readingBytes(0)
+    "success" in {
+      success("as always") mustParse ""     andReturn "as always" readingBytes(0)
+      success("as always") mustParse "blah" andReturn "as always" readingBytes(0)
     }
 
     "unit" in {
@@ -102,29 +102,29 @@ object ParserSpec extends ParserSpecification {
       skipBytes(4) mustParse "abc" andContinue()
     }
 
-    "guard" in {
-      val parser = guard("$") { readBytes(1) map asString }
+    "accept" in {
+      val parser = Parsers.accept("$") append (readBytes(1) map asString)
 
-      parser mustParse "#aa" andThrow()     readingBytes(0)
+      parser mustParse "#aa" andFail()     readingBytes(0)
       parser mustParse "$aa" andReturn("a") readingBytes(2)
     }
 
     "choice" in {
       val parser = choice(
-        "a"   -> const("first"),
-        "bc"  -> const("second"),
-        "def" -> const("third")
+        "a"   -> success("first"),
+        "bc"  -> success("second"),
+        "def" -> success("third")
       )
 
       parser mustParse "abcdef" andReturn "first"  readingBytes(1)
       parser mustParse "bcdef"  andReturn "second" readingBytes(2)
       parser mustParse "def"    andReturn "third"  readingBytes(3)
 
-      parser mustParse "xxx" andThrow() readingBytes(0)
+      parser mustParse "xxx" andFail() readingBytes(0)
     }
 
-    "times" in {
-      val parser = times(2) { readLine map asString }
+    "repN" in {
+      val parser = repN(2, readLine map asString)
       parser mustParse "one\r\ntwo\r\n" andReturn Seq("one", "two")
     }
 
@@ -240,25 +240,21 @@ object ParserSpec extends ParserSpecification {
   }
 
   "performance" in {
-    val readInt = readLine map { decodeDecimalInt(_) }
-    val readBulk = guard("$") {
-      readInt flatMap { length =>
-        readBytes(length) flatMap { bytes =>
-          readBytes(2) flatMap {
-            const(bytes)
-          }
-        }
+    val readInt = readLine map { bytes => decodeDecimalInt(bytes) }
+    val readBulk = Parsers.accept("$") append (readInt into { length =>
+      readBytes(length) into { bytes =>
+        readBytes(2) append success(bytes)
       }
-    }
+    })
 
-    val test1 = guard("*") {
-      readInt flatMap { count =>
-        times(count) { readBulk }
-      }
-    }
+    val test1 = Parsers.accept("*") append (readInt into { count =>
+      repN(count, readBulk)
+    })
 
     val count = 100
     val buf1 = ChannelBuffers.wrappedBuffer(("*"+count+"\r\n" + ("$6\r\nfoobar\r\n" * count)).getBytes)
+
+    println(test1.decode(buf1))
 
     for (x <- 1 to 100) {
       val rv = time { for (i <- 1 to 100000) {

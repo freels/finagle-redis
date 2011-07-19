@@ -1,5 +1,6 @@
 package com.twitter.finagle.parser.incremental
 
+import scala.annotation.tailrec
 import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.ParseException
 
@@ -10,125 +11,165 @@ sealed abstract class ParseResult[+Output]
 
 case class Continue[+T](next: Parser[T]) extends ParseResult[T]
 case class Return[+T](ret: T) extends ParseResult[T]
-case class Throw(err: ParseException) extends ParseResult[Nothing]
+case class Fail(ex: ParseException) extends ParseResult[Nothing]
+case class Error(ex: ParseException) extends ParseResult[Nothing]
+
 
 abstract class Parser[+Out] {
+  import Parsers._
+
   def decode(buffer: ChannelBuffer): ParseResult[Out]
 
-  def map[T](f: Out => T): Parser[T] = this into { out =>
-    try {
-      new ConstParser(f(out))
-    } catch {
-      case e: ParseException => new FailParser(e)
-    }
+  // overridden in link parsers
+
+  def hasNext = false
+
+  def decodeStep(buffer: ChannelBuffer): Parser[Out] = {
+    throw new NoSuchElementException("End of a parse chain.")
   }
 
-  def into[T](f: Out => Parser[T]): Parser[T] = {
-    new FlatMapParser(this, f)
+  // basic composition api
+
+  def append[T](rhs: Parser[T]) = new AppendParser(this, rhs)
+
+  def and[T](rhs: Parser[T]): Parser[(Out, T)] = {
+    for (l <- this; r <- rhs) yield Pair(l, r)
   }
 
-  def then[T](next: Parser[T]): Parser[T] = {
-    new ChainedParser(this, next)
-  }
+  def or[O >: Out](rhs: Parser[O]) = new OrParser(this, rhs)
+
+  def into[T](f: Out => Parser[T]): Parser[T] = new IntoParser(this, f)
+
+
+  // Satify monadic api
 
   def flatMap[T](f: Out => Parser[T]) = this into f
 
-  def flatMap[T](next: Parser[T]) = this then next
+  def flatMap[T](p: Parser[T]) = this and p
 
-  def or[T >: Out](other: Parser[T]): Parser[T] = {
-    new OrElseParser(this, other)
+  def map[T](f: Out => T): Parser[T] = this into { out => success(f(out)) }
+}
+
+sealed abstract class CompoundParser[+Out] extends Parser[Out] {
+  override def hasNext = true
+
+  def decode(buffer: ChannelBuffer): ParseResult[Out] = {
+    var curr: Parser[Out] = this
+
+    @tailrec
+    def step(p: Parser[Out]): ParseResult[Out] = {
+      if (p.hasNext) step(p.decodeStep(buffer)) else p.decode(buffer)
+    }
+
+    step(this)
   }
+
+  protected[this] def end(r: ParseResult[Out]) = new ConstParser(r)
 }
 
-class FailParser(err: ParseException) extends Parser[Nothing] {
-  def decode(buffer: ChannelBuffer) = Throw(err)
+
+class ConstParser[+Out](r: ParseResult[Out]) extends Parser[Out] {
+  def decode(buffer: ChannelBuffer) = r
 }
 
-class ConstParser[+Out](out: Out) extends Parser[Out] {
-  def decode(buffer: ChannelBuffer) = Return(out)
-}
 
-abstract class AbstractChainedParser[A,+B] extends Parser[B] {
-  protected def left: Parser[A]
-  protected def right(ret: A): Parser[B]
-  protected def continued(next: Parser[A]): Parser[B]
-
-  def decode(buffer: ChannelBuffer) = left.decode(buffer) match {
-    case e: Throw       => e
-    case r: Return[A]   => right(r.ret).decode(buffer)
-    case c: Continue[A] => if (c.next eq left) {
-      Continue(this)
+class AppendParser[+Out](parser: Parser[_], tail: Parser[Out]) extends CompoundParser[Out] {
+  override def decodeStep(buffer: ChannelBuffer) = parser.decode(buffer) match {
+    case r: Return[_]   => tail
+    case c: Continue[_] => if (c.next == parser) {
+      end(Continue(this))
     } else {
-      Continue(continued(c.next))
+      end(Continue(new AppendParser(c.next, tail)))
     }
+    case e: Fail  => end(e)
+    case e: Error => end(e)
+  }
+
+  override def append[T](other: Parser[T]) = {
+    new AppendParser(parser, tail append other)
   }
 }
 
-class ChainedParser[A,+B](protected val left: Parser[A], rhs: Parser[B])
-extends AbstractChainedParser[A,B] {
-  protected def right(ret: A) = rhs
-  protected def continued(next: Parser[A]) = new ChainedParser(next, rhs)
-
-  // override to be right-associative
-  override def then[T](other: Parser[T]) = {
-    new ChainedParser(left, rhs then other)
+class IntoParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
+extends CompoundParser[Out] {
+  override def decodeStep(buffer: ChannelBuffer) = parser.decode(buffer) match {
+    case r: Return[T]   => f(r.ret)
+    case c: Continue[T] => if (c.next == parser) {
+      end(Continue(this))
+    } else {
+      end(Continue(new IntoParser(c.next, f)))
+    }
+    case e: Fail  => end(e)
+    case e: Error => end(e)
   }
 }
 
-class FlatMapParser[A,+B](protected val left: Parser[A], f: A => Parser[B])
-extends AbstractChainedParser[A,B] {
-  protected def right(ret: A) = f(ret)
-  protected def continued(next: Parser[A]) = new FlatMapParser(next, f)
-}
+class OrParser[+Out](choice: Parser[Out], tail: Parser[Out], committed: Boolean)
+extends CompoundParser[Out] {
 
-class OrElseParser[+Out](lhs: Parser[Out], rhs: Parser[Out]) extends Parser[Out] {
-  def decode(buffer: ChannelBuffer) = {
+  def this(p: Parser[Out], t: Parser[Out]) = this(p, t, false)
+
+  override def decodeStep(buffer: ChannelBuffer) = {
     val start = buffer.readerIndex
 
-    lhs.decode(buffer) match {
-      case e: Throw => if (start == buffer.readerIndex) rhs.decode(buffer) else e
-      case r: Return[Out] => r
-      case c: Continue[Out] => if (c.next eq lhs) {
-        Continue(this)
+    choice.decode(buffer) match {
+      case r: Return[Out]   => end(r)
+      case e: Fail => if (committed || buffer.readerIndex != start) {
+        end(Error(e.ex))
       } else {
-        Continue(c.next or rhs)
+        tail
       }
-    }
-  }
-
-  // override to be right-associative
-  override def or[T >: Out](other: Parser[T]) = {
-    new OrElseParser(lhs, rhs or other)
-  }
-}
-
-class BacktrackingParser[+Out](inner: Parser[Out], offset: Int) extends Parser[Out] {
-
-  def this(inner: Parser[Out]) = this(inner, 0)
-
-  def decode(buffer: ChannelBuffer) = {
-    val start = buffer.readerIndex
-
-    buffer.readerIndex(start + offset)
-
-    // complains that Out is unchecked here, but this cannot fail, so
-    // live with the warning.
-    inner.decode(buffer) match {
-      case e: Throw => {
-        buffer.readerIndex(start)
-        e
-      }
-      case r: Return[Out] => r
       case c: Continue[Out] => {
-        if (c.next == inner && buffer.readerIndex == (start + offset)) {
-          buffer.readerIndex(start)
-          Continue(this)
+        if (c.next == choice && buffer.readerIndex == start) {
+          end(Continue(this))
         } else {
-          val newOffset = buffer.readerIndex - start
-          buffer.readerIndex(start)
-          Continue(new BacktrackingParser(c.next, newOffset))
+          end(Continue(new OrParser(c.next, tail, committed || buffer.readerIndex != start)))
         }
       }
+      case e: Error => end(e)
     }
   }
+
+  override def or[O >: Out](other: Parser[O]) = {
+    new OrParser(choice, tail or other)
+  }
+}
+
+class NotParser(parser: Parser[_]) extends Parser[Unit] {
+
+  def decode(buffer: ChannelBuffer) = {
+    val start = buffer.readerIndex
+
+    parser.decode(buffer) match {
+      case r: Return[_] => {
+        if (buffer.readerIndex != start) {
+          error()
+        } else {
+          fail()
+        }
+      }
+      case e: Fail => {
+        if (buffer.readerIndex != start) {
+          Error(e.ex)
+        } else {
+          Return(())
+        }
+      }
+      case c: Continue[_] => {
+        if (buffer.readerIndex != start) {
+          error()
+        } else if (c.next == parser) {
+          Continue(this)
+        } else {
+          Continue(new NotParser(c.next))
+        }
+      }
+      case e: Error => e
+    }
+  }
+
+  def fail() = Fail(new ParseException("Expected "+ parser +" to fail."))
+  def error() = Error(new ParseException(
+    "Expected "+ parser +" to fail, but already consumed data."
+  ))
 }

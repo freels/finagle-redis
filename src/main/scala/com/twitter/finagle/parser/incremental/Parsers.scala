@@ -16,39 +16,98 @@ object Parsers {
 
   val readLine = readTo("\r\n", "\n")
 
-  def fail(err: ParseException) = new FailParser(err)
+  def fail(ex: ParseException) = new ConstParser(Fail(ex))
 
-  def const[T](t: T) = new ConstParser(t)
+  def error(ex: ParseException) = new ConstParser(Error(ex))
 
-  val unit = const(())
+  def success[T](t: T) = new ConstParser(Return(t))
+
+  def lift[T](f: => T): Parser[T] = {
+    try {
+      success(f)
+    } catch {
+      case e: ParseException => fail(e)
+    }
+  }
+
+  def attempt[T](p: Parser[T]) = new BacktrackingParser(p)
+
+  val unit = success(())
 
   def readBytes(size: Int) = new FixedBytesParser(size)
 
-  def skipBytes(size: Int) = readBytes(size) flatMap unit
+  def skipBytes(size: Int) = readBytes(size) append unit
 
-  def guard[T](choices: String*)(parser: Parser[T]) = {
-    val g = new ConsumingMatchParser(AlternateMatcher(choices))
-    g flatMap parser
+  def accept(m: Matcher) = new ConsumingMatchParser(m)
+
+  implicit def accept(choice: String): Parser[ChannelBuffer] = {
+    accept(new DelimiterMatcher(choice))
   }
+
+  def accept(choices: String*): Parser[ChannelBuffer] = {
+    accept(AlternateMatcher(choices))
+  }
+
+  def guard(m: Matcher) = new MatchParser(m)
+
+  def guard(choice: String): Parser[ChannelBuffer] = {
+    guard(new DelimiterMatcher(choice))
+  }
+
+  def guard(choices: String*): Parser[ChannelBuffer] = {
+    guard(AlternateMatcher(choices))
+  }
+
+  def not(m: Parser[Any]) = new NotParser(m)
 
   def choice[T](choices: (String, Parser[T])*) = {
-    SwitchParser.stringMatchers(choices: _*)
+    val (m, p)          = choices.last
+    val last: Parser[T] = accept(m) append p
+
+    (choices.tail.reverse foldRight last) { (choice, rest) =>
+      val (m, p) = choice
+      (accept(m) append p) or rest
+    }
   }
 
-  def repeatTo[T](choices: String*)(parser: Parser[T]): Parser[List[T]] = {
-    val end = guard(choices: _*) { const[List[T]](Nil) }
-
+  def rep[T](p: Parser[T]): Parser[List[T]] = {
     def go(): Parser[List[T]] = {
-      end or (for (t <- parser; ts <- go) yield { t :: ts })
+      (for (t <- p; ts <- go) yield (t :: ts)) or success[List[T]](Nil)
     }
 
     go()
   }
 
-  def times[T](total: Int)(parser: Parser[T]) = {
+  def rep1[T](p: Parser[T], q: Parser[T]): Parser[List[T]] = {
+    val getRest = rep(q)
+
+    for (head <- p; tail <- getRest) yield (head :: tail)
+  }
+
+  def rep1[T](p: Parser[T]): Parser[List[T]] = {
+    rep1(p, p)
+  }
+
+  def rep1sep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
+    val getRest = repsep(p, sep)
+
+    for (head <- p; tail <- getRest) yield (head :: tail)
+  }
+
+  def repsep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
+    val end = sep append success[List[T]](Nil)
+
+    def go(): Parser[List[T]] = {
+      end or (for (t <- p; ts <- go) yield (t :: ts))
+    }
+
+    go()
+  }
+
+  def repN[T](total: Int, parser: Parser[T]) = {
     def go(i: Int, prev: List[T]): Parser[Seq[T]] = {
       if (i == total) {
-        const(prev.reverse)
+        success(prev.reverse)
       } else {
         parser flatMap { rv =>
           go(i + 1, rv :: prev)

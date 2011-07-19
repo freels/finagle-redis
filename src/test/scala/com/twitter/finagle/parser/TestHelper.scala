@@ -6,6 +6,7 @@ import org.specs.Specification
 import org.specs.matcher.Matcher
 import org.jboss.netty.buffer.{ChannelBuffers, ChannelBuffer}
 import com.twitter.finagle.ParseException
+import com.twitter.finagle.parser.incremental.{Error => ParseError}
 import com.twitter.finagle.parser.incremental._
 
 
@@ -24,7 +25,8 @@ class ParserSpecification extends Specification {
     val in = ChannelBuffers.dynamicBuffer
 
     @tailrec private def go(rv: ParseResult[Out]): ParseResult[Out] = rv match {
-      case e: Throw       => e
+      case e: Fail        => e
+      case e: Error       => e
       case Return(o)      => Return(o)
       case Continue(next) => if (source.readableBytes > 0) {
         in.writeByte(source.readByte)
@@ -47,20 +49,38 @@ class ParserSpecification extends Specification {
       this
     }
 
-    def andThrow(err: ParseException) = {
-      rv mustEqual Throw(err)
+    def andFail(err: ParseException) = {
+      rv mustEqual Fail(err)
       this
     }
 
-    def andThrow() = {
-      rv must haveClass[Throw]
+    def andFail() = {
+      rv must haveClass[Fail]
       this
     }
 
-    def andThrow(msg: String) = {
+    def andFail(msg: String) = {
       rv match {
-        case Throw(err) => err.getMessage mustEqual msg
-        case _ => fail(p.toString +" did not throw.")
+        case Fail(err) => err.getMessage mustEqual msg
+        case _ => fail(p.toString +" did not fail.")
+      }
+      this
+    }
+
+    def andError(err: ParseException) = {
+      rv mustEqual ParseError(err)
+      this
+    }
+
+    def andError() = {
+      rv must haveClass[Error]
+      this
+    }
+
+    def andError(msg: String) = {
+      rv match {
+        case ParseError(err) => err.getMessage mustEqual msg
+        case _ => fail(p.toString +" did not error.")
       }
       this
     }
