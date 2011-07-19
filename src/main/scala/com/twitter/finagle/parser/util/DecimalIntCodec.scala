@@ -44,11 +44,11 @@ object DecimalIntCodec {
     }
   }
 
-  def decode(buf: ChannelBuffer): Int = {
+  def decode(buf: ChannelBuffer): Option[Int] = {
     decode(buf, buf.readableBytes)
   }
 
-  def decode(buf: ChannelBuffer, numBytes: Int): Int = {
+  def decode(buf: ChannelBuffer, numBytes: Int): Option[Int] = {
     val last  = numBytes - 1
     var i     = last
     var rv    = 0
@@ -65,19 +65,19 @@ object DecimalIntCodec {
     while (i >= lower) {
       val c = buf.getByte(buf.readerIndex + i) - AsciiZero
 
-      if (c < 0 || c > 9) throw new ParseException("byte out of bounds")
+      if (c < 0 || c > 9) return None
       rv = rv + c * pow(10, last - i)
       i = i - 1
     }
 
-    if (isNegative) rv * -1 else rv
+    if (isNegative) Some(rv * -1) else Some(rv)
   }
 
   // helpers
 
   private def pow(x: Int, p: Int) = {
     var rv = 1
-    var j = 0
+    var j  = 0
 
     while (j < p) {
       rv = rv * x

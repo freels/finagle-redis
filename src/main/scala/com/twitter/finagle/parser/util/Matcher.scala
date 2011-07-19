@@ -42,6 +42,8 @@ class DelimiterMatcher(delimiter: Array[Byte]) extends Matcher {
 
     delimiter.length
   }
+
+  override def toString = "DelimiterMatcher("+ (new String(delimiter, "US-ASCII")) +")"
 }
 
 object AlternateMatcher {
@@ -71,5 +73,15 @@ class AlternateMatcher(delimiters: Array[Array[Byte]]) extends Matcher {
     }
 
     -1
+  }
+}
+
+class NotMatcher(inner: Matcher) extends Matcher {
+  val bytesNeeded = inner.bytesNeeded
+
+  def bytesMatching(buffer: ChannelBuffer, offset: Int): Int = {
+    if (buffer.writerIndex < offset + bytesNeeded) return -1
+
+    if (inner.bytesMatching(buffer, offset) == -1) 0 else -1
   }
 }

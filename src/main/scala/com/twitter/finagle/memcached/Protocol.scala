@@ -36,10 +36,10 @@ object ResponseDecoder {
 
   val readValue = {
     val readKey   = readTo(" ") // map { decodeUTF8String(_) }
-    val readFlags = readTo(" ") map { bytes =>
-      decodeFlags(decodeDecimalInt(bytes))
+    val readFlags = readTo(" ") into { bytes =>
+      lift(decodeDecimalInt(bytes)) map { decodeFlags(_) }
     }
-    val readLength = readUntil(" ", "\r\n") map { decodeDecimalInt(_) }
+    val readLength = readUntil(" ", "\r\n") into { b => lift(decodeDecimalInt(b)) }
     val readCas = choice(
       " "    -> (readLine map { cas => Some(decodeDecimalInt(cas)) }),
       "\r\n" -> success(None)
@@ -55,7 +55,7 @@ object ResponseDecoder {
   }
 
   val readValues = {
-    val readRest = repsep(accept("VALUE ") append readValue, not(guard("END\r\n")))
+    val readRest = repsep(accept("VALUE ") append readValue, not("END\r\n"))
 
     readValue flatMap { first =>
       readRest map { rest => Values(first :: rest) }
@@ -67,7 +67,7 @@ object ResponseDecoder {
   }
 
   val readStats = {
-    val readRest = repsep(accept("STAT ") append readStat, not(guard("END\r\n")))
+    val readRest = repsep(accept("STAT ") append readStat, not("END\r\n"))
 
     readStat flatMap { first =>
       readRest map { rest => Stats(first :: rest) }
@@ -96,7 +96,9 @@ object ResponseDecoder {
     "VERSION " -> readVersion
   )
 
-  val readNumber = readLine map { bytes => Number(decodeDecimalInt(bytes)) }
+  val readNumber = readLine into { bytes =>
+    lift(decodeDecimalInt(bytes)) map { Number(_) }
+  }
 
   val parser: Parser[Response] = readResponse or readNumber
 }

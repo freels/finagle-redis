@@ -97,11 +97,6 @@ object ParserSpec extends ParserSpecification {
       readBytes(7) map asString mustParse "aaaaaa" andContinue()
     }
 
-    "skipBytes" in {
-      skipBytes(2) mustParse "abc" andReturn () readingBytes(2)
-      skipBytes(4) mustParse "abc" andContinue()
-    }
-
     "accept" in {
       val parser = Parsers.accept("$") append (readBytes(1) map asString)
 
@@ -232,37 +227,38 @@ object ParserSpec extends ParserSpecification {
     }
   }
 
-  def time[T](f: => T) = {
-    val s = System.currentTimeMillis
-    f
-    val e = System.currentTimeMillis
-    e - s
-  }
 
-  "performance" in {
-    val readInt = readLine map { bytes => decodeDecimalInt(bytes) }
-    val readBulk = Parsers.accept("$") append (readInt into { length =>
-      readBytes(length) into { bytes =>
-        readBytes(2) append success(bytes)
-      }
-    })
+  // "performance" in {
+  //   def time[T](f: => T) = {
+  //     val s = System.currentTimeMillis
+  //     f
+  //     val e = System.currentTimeMillis
+  //     e - s
+  //   }
 
-    val test1 = Parsers.accept("*") append (readInt into { count =>
-      repN(count, readBulk)
-    })
+  //   val readInt = readLine map { bytes => decodeDecimalInt(bytes) }
+  //   val readBulk = Parsers.accept("$") append (readInt into { length =>
+  //     readBytes(length) into { bytes =>
+  //       readBytes(2) append success(bytes)
+  //     }
+  //   })
 
-    val count = 100
-    val buf1 = ChannelBuffers.wrappedBuffer(("*"+count+"\r\n" + ("$6\r\nfoobar\r\n" * count)).getBytes)
+  //   val test1 = Parsers.accept("*") append (readInt into { count =>
+  //     repN(count, readBulk)
+  //   })
 
-    println(test1.decode(buf1))
+  //   val count = 100
+  //   val buf1 = ChannelBuffers.wrappedBuffer(("*"+count+"\r\n" + ("$6\r\nfoobar\r\n" * count)).getBytes)
 
-    for (x <- 1 to 100) {
-      val rv = time { for (i <- 1 to 100000) {
-        buf1.resetReaderIndex
-        test1.decode(buf1)
-      } }
+  //   println(test1.decode(buf1))
 
-      println("test 1: "+ rv +" ("+ (rv / 100000.0) +")")
-    }
-  }
+  //   for (x <- 1 to 100) {
+  //     val rv = time { for (i <- 1 to 100000) {
+  //       buf1.resetReaderIndex
+  //       test1.decode(buf1)
+  //     } }
+
+  //     println("test 1: "+ rv +" ("+ (rv / 100000.0) +")")
+  //   }
+  // }
 }

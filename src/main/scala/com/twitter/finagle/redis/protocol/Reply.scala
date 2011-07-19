@@ -19,7 +19,7 @@ object ReplyDecoder {
   import Reply._
   import Parsers._
 
-  private val readDecimalInt = readLine into { bytes => lift(decodeDecimalInt(bytes)) }
+  private val readDecimalInt = readLine into { b => lift(decodeDecimalInt(b)) }
 
   private val readStatusReply = readLine map { Status(_) }
 
@@ -32,9 +32,7 @@ object ReplyDecoder {
       success(Bulk(None))
     } else {
       readBytes(size) flatMap { bytes =>
-        skipBytes(2) map { _ =>
-          Bulk(Some(bytes))
-        }
+        readBytes(2) append success(Bulk(Some(bytes)))
       }
     }
   }

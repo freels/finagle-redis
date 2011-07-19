@@ -17,23 +17,23 @@ class BacktrackingParser[+Out](inner: Parser[Out], offset: Int) extends Parser[O
     // live with the warning.
     inner.decode(buffer) match {
       case r: Return[Out] => r
-      case c: Continue[Out] => {
-        if (c.next == inner && buffer.readerIndex == (start + offset)) {
+      case Continue(next) => {
+        if (next == inner && buffer.readerIndex == (start + offset)) {
           buffer.readerIndex(start)
           Continue(this)
         } else {
           val newOffset = buffer.readerIndex - start
           buffer.readerIndex(start)
-          Continue(new BacktrackingParser(c.next, newOffset))
+          Continue(new BacktrackingParser(next, newOffset))
         }
       }
       case e: Fail => {
         buffer.readerIndex(start)
         e
       }
-      case e: Error => {
+      case Error(ex) => {
         buffer.readerIndex(start)
-        Fail(e.ex)
+        Fail(ex)
       }
     }
   }

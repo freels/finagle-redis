@@ -7,10 +7,10 @@ import com.twitter.finagle.ParseException
 
 // states: continue (wait), return, error
 
-sealed abstract class ParseResult[+Output]
+sealed trait ParseResult[+Out]
 
-case class Continue[+T](next: Parser[T]) extends ParseResult[T]
-case class Return[+T](ret: T) extends ParseResult[T]
+case class Continue[+Out](next: Parser[Out]) extends ParseResult[Out]
+case class Return[+Out](ret: Out) extends ParseResult[Out]
 case class Fail(ex: ParseException) extends ParseResult[Nothing]
 case class Error(ex: ParseException) extends ParseResult[Nothing]
 
@@ -50,6 +50,12 @@ abstract class Parser[+Out] {
   def map[T](f: Out => T): Parser[T] = this into { out => success(f(out)) }
 }
 
+
+class LiftParser[+Out](r: ParseResult[Out]) extends Parser[Out] {
+  def decode(buffer: ChannelBuffer) = r
+}
+
+
 sealed abstract class CompoundParser[+Out] extends Parser[Out] {
   override def hasNext = true
 
@@ -64,22 +70,16 @@ sealed abstract class CompoundParser[+Out] extends Parser[Out] {
     step(this)
   }
 
-  protected[this] def end(r: ParseResult[Out]) = new ConstParser(r)
+  protected[this] def end(r: ParseResult[Out]) = new LiftParser(r)
 }
-
-
-class ConstParser[+Out](r: ParseResult[Out]) extends Parser[Out] {
-  def decode(buffer: ChannelBuffer) = r
-}
-
 
 class AppendParser[+Out](parser: Parser[_], tail: Parser[Out]) extends CompoundParser[Out] {
   override def decodeStep(buffer: ChannelBuffer) = parser.decode(buffer) match {
-    case r: Return[_]   => tail
-    case c: Continue[_] => if (c.next == parser) {
+    case Return(_)      => tail
+    case Continue(next) => if (next eq parser) {
       end(Continue(this))
     } else {
-      end(Continue(new AppendParser(c.next, tail)))
+      end(Continue(new AppendParser(next, tail)))
     }
     case e: Fail  => end(e)
     case e: Error => end(e)
@@ -93,11 +93,11 @@ class AppendParser[+Out](parser: Parser[_], tail: Parser[Out]) extends CompoundP
 class IntoParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
 extends CompoundParser[Out] {
   override def decodeStep(buffer: ChannelBuffer) = parser.decode(buffer) match {
-    case r: Return[T]   => f(r.ret)
-    case c: Continue[T] => if (c.next == parser) {
+    case Return(r)      => f(r)
+    case Continue(next) => if (next eq parser) {
       end(Continue(this))
     } else {
-      end(Continue(new IntoParser(c.next, f)))
+      end(Continue(new IntoParser(next, f)))
     }
     case e: Fail  => end(e)
     case e: Error => end(e)
@@ -113,17 +113,17 @@ extends CompoundParser[Out] {
     val start = buffer.readerIndex
 
     choice.decode(buffer) match {
-      case r: Return[Out]   => end(r)
+      case r: Return[Out] => end(r)
       case e: Fail => if (committed || buffer.readerIndex != start) {
         end(Error(e.ex))
       } else {
         tail
       }
-      case c: Continue[Out] => {
-        if (c.next == choice && buffer.readerIndex == start) {
+      case Continue(next) => {
+        if ((next eq choice) && buffer.readerIndex == start) {
           end(Continue(this))
         } else {
-          end(Continue(new OrParser(c.next, tail, committed || buffer.readerIndex != start)))
+          end(Continue(new OrParser(next, tail, committed || buffer.readerIndex != start)))
         }
       }
       case e: Error => end(e)
@@ -155,13 +155,13 @@ class NotParser(parser: Parser[_]) extends Parser[Unit] {
           Return(())
         }
       }
-      case c: Continue[_] => {
+      case Continue(next) => {
         if (buffer.readerIndex != start) {
           error()
-        } else if (c.next == parser) {
+        } else if (next == parser) {
           Continue(this)
         } else {
-          Continue(new NotParser(c.next))
+          Continue(new NotParser(next))
         }
       }
       case e: Error => e

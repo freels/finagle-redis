@@ -6,69 +6,29 @@ import com.twitter.finagle.ParseException
 
 
 object Parsers {
-  def readTo(choices: String*) = {
-    new ConsumingDelimiterParser(AlternateMatcher(choices))
-  }
 
-  def readUntil(choices: String*) = {
-    new DelimiterParser(AlternateMatcher(choices))
-  }
+  // lifting values
 
-  val readLine = readTo("\r\n", "\n")
+  def fail(ex: ParseException) = new LiftParser(Fail(ex))
 
-  def fail(ex: ParseException) = new ConstParser(Fail(ex))
+  def error(ex: ParseException) = new LiftParser(Error(ex))
 
-  def error(ex: ParseException) = new ConstParser(Error(ex))
-
-  def success[T](t: T) = new ConstParser(Return(t))
-
-  def lift[T](f: => T): Parser[T] = {
-    try {
-      success(f)
-    } catch {
-      case e: ParseException => fail(e)
-    }
-  }
-
-  def attempt[T](p: Parser[T]) = new BacktrackingParser(p)
+  def success[T](t: T) = new LiftParser(Return(t))
 
   val unit = success(())
 
-  def readBytes(size: Int) = new FixedBytesParser(size)
-
-  def skipBytes(size: Int) = readBytes(size) append unit
-
-  def accept(m: Matcher) = new ConsumingMatchParser(m)
-
-  implicit def accept(choice: String): Parser[ChannelBuffer] = {
-    accept(new DelimiterMatcher(choice))
+  def lift[T](o: Option[T]): Parser[T] = o match {
+    case Some(r) => success(r)
+    case None    => fail(new ParseException("Parse failed."))
   }
 
-  def accept(choices: String*): Parser[ChannelBuffer] = {
-    accept(AlternateMatcher(choices))
-  }
 
-  def guard(m: Matcher) = new MatchParser(m)
+  // backtrack
 
-  def guard(choice: String): Parser[ChannelBuffer] = {
-    guard(new DelimiterMatcher(choice))
-  }
+  def attempt[T](p: Parser[T]) = new BacktrackingParser(p)
 
-  def guard(choices: String*): Parser[ChannelBuffer] = {
-    guard(AlternateMatcher(choices))
-  }
 
-  def not(m: Parser[Any]) = new NotParser(m)
-
-  def choice[T](choices: (String, Parser[T])*) = {
-    val (m, p)          = choices.last
-    val last: Parser[T] = accept(m) append p
-
-    (choices.tail.reverse foldRight last) { (choice, rest) =>
-      val (m, p) = choice
-      (accept(m) append p) or rest
-    }
-  }
+  // repetition
 
   def rep[T](p: Parser[T]): Parser[List[T]] = {
     def go(): Parser[List[T]] = {
@@ -118,6 +78,63 @@ object Parsers {
     go(0, Nil)
   }
 
+
+  // matching parsers
+
+  def accept(m: Matcher) = new ConsumingMatchParser(m)
+
+  implicit def accept(choice: String): Parser[ChannelBuffer] = {
+    accept(new DelimiterMatcher(choice))
+  }
+
+  def accept(choices: String*): Parser[ChannelBuffer] = {
+    accept(AlternateMatcher(choices))
+  }
+
+  def guard(m: Matcher) = new MatchParser(m)
+
+  def guard(choice: String): Parser[ChannelBuffer] = {
+    guard(new DelimiterMatcher(choice))
+  }
+
+  def guard(choices: String*): Parser[ChannelBuffer] = {
+    guard(AlternateMatcher(choices))
+  }
+
+  def not(m: Matcher) = new MatchParser(new NotMatcher(m))
+
+  def not(choice: String): Parser[ChannelBuffer] = {
+    not(new DelimiterMatcher(choice))
+  }
+
+  def not(choices: String*): Parser[ChannelBuffer] = {
+    not(AlternateMatcher(choices))
+  }
+
+
+
+  def choice[T](choices: (String, Parser[T])*): Parser[T] = {
+    val (m, p)           = choices.first
+    val first: Parser[T] = accept(m) append p
+    val rest             = choices.tail
+
+    if (rest.isEmpty) first else first or choice(rest: _*)
+  }
+
+  def readTo(choices: String*) = {
+    new ConsumingDelimiterParser(AlternateMatcher(choices))
+  }
+
+  def readUntil(choices: String*) = {
+    new DelimiterParser(AlternateMatcher(choices))
+  }
+
+  val readLine = readTo("\r\n", "\n")
+
+
+  // basic reading parsers
+
+  def readBytes(size: Int) = new FixedBytesParser(size)
 
   private[parser] abstract class PrimitiveParser[Out] extends Parser[Out] {
     protected val continue = Continue(this)
