@@ -36,11 +36,14 @@ object Parsers {
   // repetition
 
   def rep[T](p: Parser[T]): Parser[List[T]] = {
-    def go(): Parser[List[T]] = {
-      (for (t <- p; ts <- go) yield (t :: ts)) or success[List[T]](Nil)
+    val optP = opt(p)
+
+    def go(prev: List[T]): Parser[List[T]] = optP into {
+      case Some(t) => go(t :: prev)
+      case None    => success(prev)
     }
 
-    go()
+    go(Nil) map { _.reverse }
   }
 
   def rep1[T](p: Parser[T], q: Parser[T]): Parser[List[T]] = {
@@ -54,13 +57,18 @@ object Parsers {
   }
 
   def rep1sep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
-    def go(): Parser[List[T]] = {
+    val optSep = sep append success(true) or success(false)
+
+    def go(prev: List[T]): Parser[List[T]] = {
       p into { t =>
-        sep append go map { ts => t :: ts } or success(List(t))
+        optSep into {
+          case true  => go(t :: prev)
+          case false => success(t :: prev)
+        }
       }
     }
 
-    go()
+    go(Nil) map { _.reverse }
   }
 
   def repsep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
