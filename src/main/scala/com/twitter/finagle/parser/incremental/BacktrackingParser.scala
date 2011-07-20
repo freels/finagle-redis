@@ -15,7 +15,7 @@ class BacktrackingParser[+Out](inner: Parser[Out], offset: Int) extends Parser[O
     // complains that Out is unchecked here, but this cannot fail, so
     // live with the warning.
     inner.decode(buffer) match {
-      case r: Return[Out] => r
+      case r @ Return(_) => r
       case Continue(next) => {
         if (next == inner && buffer.readerIndex == (start + offset)) {
           buffer.readerIndex(start)

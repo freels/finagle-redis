@@ -21,9 +21,14 @@ abstract class Matcher extends ChannelBufferIndexFinder {
    */
   def bytesMatching(input: ChannelBuffer, offset: Int): Int
 
+  // satisfy ChannelBufferIndexFinder interface
   def find(input: ChannelBuffer, offset: Int) = {
     bytesMatching(input, offset) >= 0
   }
+
+  def negate = new NotMatcher(this)
+
+  def unary_! = negate
 }
 
 class DelimiterMatcher(delimiter: Array[Byte]) extends Matcher {

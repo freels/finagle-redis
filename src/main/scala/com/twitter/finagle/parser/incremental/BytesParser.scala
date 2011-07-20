@@ -3,14 +3,14 @@ package com.twitter.finagle.parser.incremental
 import org.jboss.netty.buffer.{ChannelBuffers, ChannelBuffer}
 
 
-object FixedBytesParser {
+object BytesParser {
   val ChunkSize = 256
 }
 
-class FixedBytesParser(bytesLeft: Int, dataOpt: Option[ChannelBuffer]) extends Parser[ChannelBuffer] {
+class BytesParser(bytesLeft: Int, dataOpt: Option[ChannelBuffer]) extends Parser[ChannelBuffer] {
   def this(bytes: Int) = this(bytes, None)
 
-  import FixedBytesParser._
+  import BytesParser._
 
   def decode(buffer: ChannelBuffer) = {
     val readable = buffer.readableBytes
@@ -28,10 +28,24 @@ class FixedBytesParser(bytesLeft: Int, dataOpt: Option[ChannelBuffer]) extends P
       if (newLeft == 0) {
         Return(data)
       } else {
-        Continue(new FixedBytesParser(newLeft, Some(data)))
+        Continue(new BytesParser(newLeft, Some(data)))
       }
     } else {
       Continue(this)
+    }
+  }
+}
+
+class SkipBytesParser(toRead: Int) extends Parser[Unit] {
+  def decode(buffer: ChannelBuffer) = {
+    val readable = buffer.readableBytes
+
+    if (readable < toRead) {
+      buffer.skipBytes(readable)
+      Continue(new SkipBytesParser(toRead - readable))
+    } else {
+      buffer.skipBytes(toRead)
+      Return(())
     }
   }
 }

@@ -19,6 +19,8 @@ object ReplyDecoder {
   import Reply._
   import Parsers._
 
+  private val skipCRLF = skipBytes(2)
+
   private val readDecimalInt = readLine into { b => lift(decodeDecimalInt(b)) }
 
   private val readStatusReply = readLine map { Status(_) }
@@ -27,19 +29,17 @@ object ReplyDecoder {
 
   private val readIntegerReply = readDecimalInt map { Integer(_) }
 
-  private val readBulkReply = readDecimalInt flatMap { size =>
+  private val readBulkReply = readDecimalInt into { size =>
     if (size < 0) {
       success(Bulk(None))
     } else {
-      readBytes(size) flatMap { bytes =>
-        readBytes(2) append success(Bulk(Some(bytes)))
-      }
+      readBytes(size) into { b => skipCRLF ^^^ Bulk(Some(b)) }
     }
   }
 
   private val readBulkForMulti = accept("$") append readBulkReply
 
-  private val readMultiBulkReply = readDecimalInt flatMap { count =>
+  private val readMultiBulkReply = readDecimalInt into { count =>
     if (count < 0) {
       success(MultiBulk(None))
     } else {

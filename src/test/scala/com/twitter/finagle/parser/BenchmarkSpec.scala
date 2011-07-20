@@ -24,16 +24,16 @@ object BenchmarkSpec extends Specification {
     (("VALUE foo 0 30\r\n"+ ("a" * 30) +"\r\n") * 30 + "END\r\n").getBytes("ASCII")
   )
 
-  "handrolled" in {
-    for (x <- 1 to 10) {
-      val rv = time { for (i <- 1 to 10000) {
-        response.resetReaderIndex
-        memcachedDecoder.offer(response)
-      } }
+  // "handrolled" in {
+  //   for (x <- 1 to 10) {
+  //     val rv = time { for (i <- 1 to 10000) {
+  //       response.resetReaderIndex
+  //       memcachedDecoder.offer(response)
+  //     } }
 
-      println("handrolled: "+ rv +" ("+ (rv / 10000.0) +")")
-    }
-  }
+  //     println("handrolled: "+ rv +" ("+ (rv / 10000.0) +")")
+  //   }
+  // }
 
   "combinators" in {
     for (x <- 1 to 10) {

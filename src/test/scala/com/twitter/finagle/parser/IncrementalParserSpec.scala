@@ -16,12 +16,12 @@ object ParserSpec extends ParserSpecification {
     parser mustParse "one\r\ntwo\r\n" andReturn "one" readingBytes(5)
   }
 
-  "FixedBytesParser" in {
+  "BytesParser" in {
     val parser = readBytes(513)
     val input  = ChannelBuffers.dynamicBuffer
 
     parser.decode(input) mustEqual Continue(parser)
-    for (i <- 1 until FixedBytesParser.ChunkSize) {
+    for (i <- 1 until BytesParser.ChunkSize) {
       input.writeByte('x')
     }
 
@@ -33,7 +33,7 @@ object ParserSpec extends ParserSpecification {
     val Continue(next) = parser.decode(input)
 
     next must notBe(parser)
-    input.readerIndex mustEqual FixedBytesParser.ChunkSize
+    input.readerIndex mustEqual BytesParser.ChunkSize
   }
 
   // "ChainedParser" in {

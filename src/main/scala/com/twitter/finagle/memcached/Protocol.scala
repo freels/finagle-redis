@@ -60,7 +60,7 @@ object ResponseDecoder {
       "\r\n" -> success(None)
     )
 
-    val skipCRLF  = readByte append readByte
+    val skipCRLF  = skipBytes(2)
 
     val readValue = accept("VALUE ") append readKey into { key =>
       readFlags append readLength into { length =>

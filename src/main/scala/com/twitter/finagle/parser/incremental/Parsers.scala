@@ -92,7 +92,7 @@ object Parsers {
 
   // matching parsers
 
-  def accept(m: Matcher) = new ConsumingMatchParser(m)
+  def accept(m: Matcher) = new MatchParser(m) into readBytes
 
   implicit def accept(choice: String): Parser[ChannelBuffer] = {
     accept(new DelimiterMatcher(choice))
@@ -104,24 +104,23 @@ object Parsers {
 
   def guard(m: Matcher) = new MatchParser(m)
 
-  def guard(choice: String): Parser[ChannelBuffer] = {
+  def guard(choice: String): Parser[Int] = {
     guard(new DelimiterMatcher(choice))
   }
 
-  def guard(choices: String*): Parser[ChannelBuffer] = {
+  def guard(choices: String*): Parser[Int] = {
     guard(AlternateMatcher(choices))
   }
 
-  def not(m: Matcher) = new MatchParser(new NotMatcher(m))
+  def not(m: Matcher) = guard(m.negate) append unit
 
-  def not(choice: String): Parser[ChannelBuffer] = {
+  def not(choice: String): Parser[Unit] = {
     not(new DelimiterMatcher(choice))
   }
 
-  def not(choices: String*): Parser[ChannelBuffer] = {
+  def not(choices: String*): Parser[Unit] = {
     not(AlternateMatcher(choices))
   }
-
 
 
   def choice[T](choices: (String, Parser[T])*): Parser[T] = {
@@ -132,6 +131,9 @@ object Parsers {
     if (rest.isEmpty) first else first or choice(rest: _*)
   }
 
+
+  // Delimiter parsers
+
   def readTo(m: Matcher) = new ConsumingDelimiterParser(m)
 
   def readTo(choice: String): Parser[ChannelBuffer] = {
@@ -141,7 +143,6 @@ object Parsers {
   def readTo(choices: String*): Parser[ChannelBuffer] = {
     readTo(AlternateMatcher(choices))
   }
-
 
   def readUntil(m: Matcher) = new DelimiterParser(m)
 
@@ -169,7 +170,9 @@ object Parsers {
 
   // basic reading parsers
 
-  def readBytes(size: Int) = new FixedBytesParser(size)
+  def readBytes(size: Int) = new BytesParser(size)
+
+  def skipBytes(size: Int) = new SkipBytesParser(size)
 
   private[parser] abstract class PrimitiveParser[Out] extends Parser[Out] {
     protected val continue = Continue(this)
