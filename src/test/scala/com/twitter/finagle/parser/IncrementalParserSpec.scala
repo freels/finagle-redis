@@ -2,7 +2,6 @@ package com.twitter.finagle.parser.incremental
 
 import org.specs.Specification
 import org.jboss.netty.buffer.{ChannelBuffers, ChannelBuffer}
-import com.twitter.finagle.ParseException
 import com.twitter.finagle.parser.util.DecodingHelpers._
 import com.twitter.finagle.parser.test._
 
@@ -70,7 +69,7 @@ object ParserSpec extends ParserSpecification {
     }
 
     "fail" in {
-      val err = new ParseException("whoops")
+      val err = "whoops"
 
       Parsers.fail(err) mustParse ""    andFail err readingBytes(0)
       Parsers.fail(err) mustParse "foo" andFail err readingBytes(0)
@@ -98,10 +97,15 @@ object ParserSpec extends ParserSpecification {
     }
 
     "accept" in {
-      val parser = Parsers.accept("$") append (readBytes(1) map asString)
+      val parser = Parsers.accept("foo") map asString
 
-      parser mustParse "#aa" andFail()     readingBytes(0)
-      parser mustParse "$aa" andReturn("a") readingBytes(2)
+      parser mustParse "f"    andContinue()    readingBytes(0)
+      parser mustParse "fo"   andContinue()    readingBytes(0)
+      parser mustParse "foo"  andReturn("foo") readingBytes(3)
+      parser mustParse "foox" andReturn("foo") readingBytes(3)
+      parser mustParse "x"    andFail()        readingBytes(0)
+      parser mustParse "fx"   andFail()        readingBytes(0)
+      parser mustParse "fox"  andFail()        readingBytes(0)
     }
 
     "choice" in {
@@ -121,6 +125,22 @@ object ParserSpec extends ParserSpecification {
     "repN" in {
       val parser = repN(2, readLine map asString)
       parser mustParse "one\r\ntwo\r\n" andReturn Seq("one", "two")
+    }
+
+    "rep" in {
+      val parser = rep(Parsers.accept("foo") map asString)
+
+      parser mustParse "xx" andReturn List()
+      parser mustParse "foox" andReturn List("foo")
+      parser mustParse "foofoox" andReturn List("foo", "foo")
+    }
+
+    "repsep" in {
+      val parser = repsep(Parsers.accept("foo") map asString, " ")
+
+      parser mustParse " dddddd" andReturn List()
+      parser mustParse "fooddddd" andReturn List("foo")
+      parser mustParse "foo foodddddd" andReturn List("foo", "foo")
     }
 
     "readByte" in {
@@ -226,39 +246,4 @@ object ParserSpec extends ParserSpecification {
       readFloat mustParse "byt" andContinue()
     }
   }
-
-
-  // "performance" in {
-  //   def time[T](f: => T) = {
-  //     val s = System.currentTimeMillis
-  //     f
-  //     val e = System.currentTimeMillis
-  //     e - s
-  //   }
-
-  //   val readInt = readLine map { bytes => decodeDecimalInt(bytes) }
-  //   val readBulk = Parsers.accept("$") append (readInt into { length =>
-  //     readBytes(length) into { bytes =>
-  //       readBytes(2) append success(bytes)
-  //     }
-  //   })
-
-  //   val test1 = Parsers.accept("*") append (readInt into { count =>
-  //     repN(count, readBulk)
-  //   })
-
-  //   val count = 100
-  //   val buf1 = ChannelBuffers.wrappedBuffer(("*"+count+"\r\n" + ("$6\r\nfoobar\r\n" * count)).getBytes)
-
-  //   println(test1.decode(buf1))
-
-  //   for (x <- 1 to 100) {
-  //     val rv = time { for (i <- 1 to 100000) {
-  //       buf1.resetReaderIndex
-  //       test1.decode(buf1)
-  //     } }
-
-  //     println("test 1: "+ rv +" ("+ (rv / 100000.0) +")")
-  //   }
-  // }
 }

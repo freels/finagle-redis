@@ -1,7 +1,6 @@
 package com.twitter.finagle.parser.incremental
 
 import org.jboss.netty.buffer.ChannelBuffer
-import com.twitter.finagle.ParseException
 
 
 class BacktrackingParser[+Out](inner: Parser[Out], offset: Int) extends Parser[Out] {
@@ -31,9 +30,9 @@ class BacktrackingParser[+Out](inner: Parser[Out], offset: Int) extends Parser[O
         buffer.readerIndex(start)
         e
       }
-      case Error(ex) => {
+      case Error(message) => {
         buffer.readerIndex(start)
-        Fail(ex)
+        Fail(message)
       }
     }
   }

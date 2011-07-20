@@ -15,7 +15,9 @@ abstract class Matcher extends ChannelBufferIndexFinder {
   /*
    * Tests whether or not `input` matches this beginning at `offset`
    *
-   * returns the number of bytes taken by the match, or -1 if there is no match
+   * returns the number of bytes taken by the match
+   * -1 if the match is inconclusive
+   * -2 if the match fails
    */
   def bytesMatching(input: ChannelBuffer, offset: Int): Int
 
@@ -31,12 +33,11 @@ class DelimiterMatcher(delimiter: Array[Byte]) extends Matcher {
   val bytesNeeded = delimiter.length
 
   def bytesMatching(buffer: ChannelBuffer, offset: Int): Int = {
-    if (buffer.writerIndex < offset + delimiter.length) return -1
-
     var i = 0
 
     while (i < delimiter.length) {
-      if (delimiter(i) != buffer.getByte(offset + i)) return -1
+      if (buffer.writerIndex <= offset + i) return -1
+      if (delimiter(i) != buffer.getByte(offset + i)) return -2
       i = i + 1
     }
 
@@ -64,15 +65,19 @@ class AlternateMatcher(delimiters: Array[Array[Byte]]) extends Matcher {
     if (buffer.writerIndex < offset + minBytesNeeded) return -1
 
     var i = 0
+    var inconclusive = false
 
     while (i < choices.length) {
       choices(i).bytesMatching(buffer, offset) match {
-        case -1      => i = i + 1
+        case -2      => ()
+        case -1      => inconclusive = true
         case isMatch => return isMatch
       }
+
+      i = i + 1
     }
 
-    -1
+    if (inconclusive) -1 else -2
   }
 }
 
@@ -80,8 +85,10 @@ class NotMatcher(inner: Matcher) extends Matcher {
   val bytesNeeded = inner.bytesNeeded
 
   def bytesMatching(buffer: ChannelBuffer, offset: Int): Int = {
-    if (buffer.writerIndex < offset + bytesNeeded) return -1
-
-    if (inner.bytesMatching(buffer, offset) == -1) 0 else -1
+    inner.bytesMatching(buffer, offset) match {
+      case -2      => 0
+      case -1      => -1
+      case matched => -2
+    }
   }
 }

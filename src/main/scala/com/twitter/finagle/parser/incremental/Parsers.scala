@@ -2,16 +2,19 @@ package com.twitter.finagle.parser.incremental
 
 import org.jboss.netty.buffer.{ChannelBuffers, ChannelBufferIndexFinder, ChannelBuffer}
 import com.twitter.finagle.parser.util._
-import com.twitter.finagle.ParseException
 
 
 object Parsers {
 
+  case class ~[+A, +B](_1: A, _2: B) {
+    override def toString = "("+ _1 +"~"+ _2 +")"
+  }
+
   // lifting values
 
-  def fail(ex: ParseException) = new LiftParser(Fail(ex))
+  def fail(message: String) = new LiftParser(Fail(message))
 
-  def error(ex: ParseException) = new LiftParser(Error(ex))
+  def error(message: String) = new LiftParser(Error(message))
 
   def success[T](t: T) = new LiftParser(Return(t))
 
@@ -19,11 +22,13 @@ object Parsers {
 
   def lift[T](o: Option[T]): Parser[T] = o match {
     case Some(r) => success(r)
-    case None    => fail(new ParseException("Parse failed."))
+    case None    => fail("Parse failed.")
   }
 
 
-  // backtrack
+  // behavior transformation
+
+  def opt[T](p: Parser[T]): Parser[Option[T]] = p map { Some(_) } or success(None)
 
   def attempt[T](p: Parser[T]) = new BacktrackingParser(p)
 
@@ -49,19 +54,17 @@ object Parsers {
   }
 
   def rep1sep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
-    val getRest = repsep(p, sep)
-
-    for (head <- p; tail <- getRest) yield (head :: tail)
-  }
-
-  def repsep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
-    val end = sep append success[List[T]](Nil)
-
     def go(): Parser[List[T]] = {
-      end or (for (t <- p; ts <- go) yield (t :: ts))
+      p into { t =>
+        sep append go map { ts => t :: ts } or success(List(t))
+      }
     }
 
     go()
+  }
+
+  def repsep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
+    rep1sep(p, sep) or success[List[T]](Nil)
   }
 
   def repN[T](total: Int, parser: Parser[T]) = {
@@ -114,22 +117,46 @@ object Parsers {
 
 
   def choice[T](choices: (String, Parser[T])*): Parser[T] = {
-    val (m, p)           = choices.first
+    val (m, p)           = choices.head
     val first: Parser[T] = accept(m) append p
     val rest             = choices.tail
 
     if (rest.isEmpty) first else first or choice(rest: _*)
   }
 
-  def readTo(choices: String*) = {
-    new ConsumingDelimiterParser(AlternateMatcher(choices))
+  def readTo(m: Matcher) = new ConsumingDelimiterParser(m)
+
+  def readTo(choice: String): Parser[ChannelBuffer] = {
+    readTo(new DelimiterMatcher(choice))
   }
 
-  def readUntil(choices: String*) = {
-    new DelimiterParser(AlternateMatcher(choices))
+  def readTo(choices: String*): Parser[ChannelBuffer] = {
+    readTo(AlternateMatcher(choices))
   }
 
-  val readLine = readTo("\r\n", "\n")
+
+  def readUntil(m: Matcher) = new DelimiterParser(m)
+
+  def readUntil(choice: String): Parser[ChannelBuffer] = {
+    readUntil(new DelimiterMatcher(choice))
+  }
+
+  def readUntil(choices: String*): Parser[ChannelBuffer] = {
+    readUntil(AlternateMatcher(choices))
+  }
+
+  def readWhile(m: Matcher) = readUntil(new NotMatcher(m))
+
+  def readWhile(choice: String): Parser[ChannelBuffer] = {
+    readWhile(new DelimiterMatcher(choice))
+  }
+
+  def readWhile(choices: String*): Parser[ChannelBuffer] = {
+    readWhile(AlternateMatcher(choices))
+  }
+
+  val readLine = readTo(Matchers.CRLF)
+  val readWord = readUntil(Matchers.WhiteSpace)
 
 
   // basic reading parsers

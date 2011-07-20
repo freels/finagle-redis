@@ -1,108 +1,127 @@
-package com.twitter.finagle.redis.test.memcached
+package com.twitter.finagle.memcached_test
 
 import org.jboss.netty.channel._
 import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.Codec
 import com.twitter.finagle.parser.incremental._
+import com.twitter.finagle.parser.incremental.Parsers._
 import com.twitter.finagle.parser.util.DecodingHelpers._
+import com.twitter.finagle.parser.util.Matchers._
 
 
 sealed abstract class Response
-case class NotFound()                     extends Response
-case class Exists()                       extends Response
-case class Stored()                       extends Response
-case class NotStored()                    extends Response
-case class Deleted()                      extends Response
-case class Error(cause: String)    extends Response
+case object NotFound  extends Response
+case object Exists    extends Response
+case object Stored    extends Response
+case object NotStored extends Response
+case object Deleted   extends Response
 
-case class Values(values: Seq[Value]) extends Response
-case class Stats(stats: Seq[Stat]) extends Response
-case class EmptyResult()                  extends Response
-case class Number(value: Long)         extends Response
-case class Version(version: ChannelBuffer) extends Response
+abstract class Results[+T] extends Response {
+  def items: Seq[T]
+}
 
+case class Values(items: Seq[Value]) extends Results[Value]
+case class Stats(items: Seq[Stat]) extends Results[Stat]
+case object EmptyResult extends Results[Nothing] {
+  def items = Nil
+}
 
-case class Value(key: ChannelBuffer, value: ChannelBuffer)
-case class Stat(name: ChannelBuffer, value: ChannelBuffer)
+case class Number(value: Long)       extends Response
+
+case class Error(cause: String)     extends Response
+case class Version(version: String) extends Response
+
+case class Value(key: String, value: ChannelBuffer)
+case class Stat(name: String, value: ChannelBuffer)
+
 
 object ResponseDecoder {
-  import Parsers._
 
-  val skipSpace = readByte
+  val readError = {
+    val readCause = readLine map { b => Error(b.toString("UTF-8")) }
 
-  val readErrorCause = readLine map { bytes =>
-    Error(bytes.toString("UTF-8"))
+    choice(
+      "ERROR\r\n"     -> success(Error("")),
+      "SERVER_ERROR " -> readCause,
+      "CLIENT_ERROR " -> readCause
+    )
   }
 
-  val readValue = {
-    val readKey   = readTo(" ") // map { decodeUTF8String(_) }
-    val readFlags = readTo(" ") into { bytes =>
-      lift(decodeDecimalInt(bytes)) map { decodeFlags(_) }
+
+  val readValues = {
+    val readKey   = readTo(WhiteSpace) map { decodeUTF8String(_) }
+    val readFlags = readTo(WhiteSpace) into { b =>
+      lift(decodeDecimalInt(b)) } map { decodeFlags(_)
     }
-    val readLength = readUntil(" ", "\r\n") into { b => lift(decodeDecimalInt(b)) }
+
+    val readLength = readUntil(WhiteSpace) into { b => lift(decodeDecimalInt(b)) }
     val readCas = choice(
       " "    -> (readLine map { cas => Some(decodeDecimalInt(cas)) }),
       "\r\n" -> success(None)
     )
 
-    for {
-      key    <- readKey
-      flags  <- readFlags
-      length <- readLength
-      casId  <- readCas
-      data   <- readBytes(length)
-    } yield Value(key, data)
-  }
+    val skipCRLF  = readByte append readByte
 
-  val readValues = {
-    val readRest = repsep(accept("VALUE ") append readValue, not("END\r\n"))
-
-    readValue flatMap { first =>
-      readRest map { rest => Values(first :: rest) }
+    val readValue = accept("VALUE ") append readKey into { key =>
+      readFlags append readLength into { length =>
+        readCas append readBytes(length) into { data =>
+          skipCRLF ^^^ Value(key, data)
+        }
+      }
     }
+
+    (rep1(readValue) map { Values(_) }) <~ accept("END\r\n")
   }
 
-  val readStat = readTo(" ") flatMap { name =>
-    readLine map { value => Stat(name, value) }
-  }
 
   val readStats = {
-    val readRest = repsep(accept("STAT ") append readStat, not("END\r\n"))
+    val readName = readTo(WhiteSpace) map { decodeUTF8String(_) }
 
-    readStat flatMap { first =>
-      readRest map { rest => Stats(first :: rest) }
+    val readStat = accept("STAT ") append readName into { name =>
+      readLine map { value => Stat(name, value) }
+    }
+
+    (rep1(readStat) map { Stats(_) }) <~ accept("END\r\n")
+  }
+
+
+  val readStorageResponse = choice(
+    "STORED\r\n"     -> success(Stored),
+    "NOT_STORED\r\n" -> success(NotStored),
+    "DELETED\r\n"    -> success(Deleted),
+    "NOT_FOUND\r\n"  -> success(NotFound),
+    "EXISTS\r\n"     -> success(Exists)
+  )
+
+
+  val readEmptyResult = accept("END\r\n") ^^^ EmptyResult
+
+
+  val readNumber = {
+    val decimalChars = "1234567890-+".split("").tail // drop empty string
+    guard(decimalChars: _*) append readLine into { bytes =>
+      lift(decodeDecimalInt(bytes)) map { Number(_) }
     }
   }
 
-  val readVersion = readLine map { Version(_) }
 
-  val readResponse = choice(
-    // errors
-    "ERROR\r\n"     -> success(Error("")),
-    "SERVER_ERROR " -> readErrorCause,
-    "CLIENT_ERROR " -> readErrorCause,
+  val readVersion = readLine map { v => Version(decodeUTF8String(v)) }
 
-    // storage responses
-    "STORED\r\n"     -> success(Stored()),
-    "NOT_STORED\r\n" -> success(NotStored()),
-    "DELETED\r\n"    -> success(Deleted()),
-    "NOT_FOUND\r\n"  -> success(NotFound()),
-    "EXISTS\r\n"     -> success(Exists()),
 
-    // retrieval responses
-    "VALUE "   -> readValues,
-    "STAT "    -> readStats,
-    "END\r\n"  -> success(EmptyResult()),
-    "VERSION " -> readVersion
-  )
+  // all together now
 
-  val readNumber = readLine into { bytes =>
-    lift(decodeDecimalInt(bytes)) map { Number(_) }
+  val parser: Parser[Response] = {
+    readValues or
+    readEmptyResult or
+    readStorageResponse or
+    readError or
+    readStats or
+    readVersion or
+    readNumber
   }
-
-  val parser: Parser[Response] = readResponse or readNumber
 }
 
+class ResponseDecoder extends ParserDecoder[Response](ResponseDecoder.parser)
 
 // class Memcached extends Codec[Command, Response] {
 //   def pipelineFactory = new ChannelPipelineFactory {

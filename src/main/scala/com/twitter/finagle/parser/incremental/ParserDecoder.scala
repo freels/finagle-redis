@@ -16,11 +16,11 @@ class ParserDecoder[+Output](parser: Parser[Output]) extends FrameDecoder {
     state.decode(buffer) match {
       case e: Fail => {
         start()
-        throw e.ex
+        e.throwException()
       }
       case e: Error => {
         start()
-        throw e.ex
+        e.throwException()
       }
       case Return(out) => {
         start()

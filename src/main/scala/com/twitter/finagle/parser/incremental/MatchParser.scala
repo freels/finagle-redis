@@ -2,7 +2,6 @@ package com.twitter.finagle.parser.incremental
 
 import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.parser.util._
-import com.twitter.finagle.ParseException
 
 
 abstract class AbstractMatchParser[+Out](matcher: Matcher) extends Parser[Out] {
@@ -11,17 +10,18 @@ abstract class AbstractMatchParser[+Out](matcher: Matcher) extends Parser[Out] {
 
   def decode(buffer: ChannelBuffer): ParseResult[Out] = {
     matcher.bytesMatching(buffer, buffer.readerIndex) match {
-      case -1        => matchFailed(buffer)
+      case -2        => matchFailed
+      case -1        => matchInconclusive
       case matchSize => matchSucceeded(buffer, matchSize)
     }
   }
 
-  protected def matchFailed(buffer: ChannelBuffer): ParseResult[Out] = {
-    if (buffer.readableBytes < matcher.bytesNeeded) {
-      Continue(this)
-    } else {
-      new Fail(new ParseException("Match failed."))
-    }
+  protected def matchFailed: ParseResult[Out] = {
+    new Fail("Match failed.")
+  }
+
+  protected def matchInconclusive: ParseResult[Out] = {
+    Continue(this)
   }
 }
 

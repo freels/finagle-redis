@@ -5,7 +5,6 @@ import java.nio.charset.Charset
 import org.specs.Specification
 import org.specs.matcher.Matcher
 import org.jboss.netty.buffer.{ChannelBuffers, ChannelBuffer}
-import com.twitter.finagle.ParseException
 import com.twitter.finagle.parser.incremental.{Error => ParseError}
 import com.twitter.finagle.parser.incremental._
 
@@ -49,7 +48,7 @@ class ParserSpecification extends Specification {
       this
     }
 
-    def andFail(err: ParseException) = {
+    def andFail(err: String) = {
       rv mustEqual Fail(err)
       this
     }
@@ -59,29 +58,13 @@ class ParserSpecification extends Specification {
       this
     }
 
-    def andFail(msg: String) = {
-      rv match {
-        case Fail(err) => err.getMessage mustEqual msg
-        case _ => fail(p.toString +" did not fail.")
-      }
-      this
-    }
-
-    def andError(err: ParseException) = {
+    def andError(err: String) = {
       rv mustEqual ParseError(err)
       this
     }
 
     def andError() = {
       rv must haveClass[Error]
-      this
-    }
-
-    def andError(msg: String) = {
-      rv match {
-        case ParseError(err) => err.getMessage mustEqual msg
-        case _ => fail(p.toString +" did not error.")
-      }
       this
     }
 
