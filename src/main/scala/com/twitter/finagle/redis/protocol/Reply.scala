@@ -21,41 +21,38 @@ object ReplyDecoder {
 
   private val skipCRLF = skipBytes(2)
 
-  private val readDecimalInt = readLine into { b => lift(decodeDecimalInt(b)) }
+  private val readInt = readLine into { b => liftOpt(decodeDecimalInt(b)) }
 
-  private val readStatusReply = readLine map { Status(_) }
 
-  private val readErrorReply = readLine map { Error(_) }
+  private val readStatusReply = "+" then readLine map { Status(_) }
 
-  private val readIntegerReply = readDecimalInt map { Integer(_) }
+  private val readErrorReply = "-" then readLine map { Error(_) }
 
-  private val readBulkReply = readDecimalInt into { size =>
+  private val readIntegerReply = ":" then readInt map { Integer(_) }
+
+  private val readBulkReply = "$" then readInt into { size =>
     if (size < 0) {
       success(Bulk(None))
     } else {
-      readBytes(size) into { b => skipCRLF ^^^ Bulk(Some(b)) }
+      readBytes(size) map { b => Bulk(Some(b)) } through skipCRLF
     }
   }
 
-  private val readBulkForMulti = accept("$") append readBulkReply
-
-  private val readMultiBulkReply = readDecimalInt into { count =>
+  private val readMultiBulkReply = "*" then readInt into { count =>
     if (count < 0) {
       success(MultiBulk(None))
     } else {
-      repN(count, readBulkForMulti) map { bulks =>
-        MultiBulk(Some(bulks))
-      }
+      repN(count, readBulkReply) map { bs => MultiBulk(Some(bs)) }
     }
   }
 
-  val parser = choice(
-    "+" -> readStatusReply,
-    "-" -> readErrorReply,
-    ":" -> readIntegerReply,
-    "$" -> readBulkReply,
-    "*" -> readMultiBulkReply
-  )
+  val parser = {
+    readBulkReply      or
+    readMultiBulkReply or
+    readStatusReply    or
+    readIntegerReply   or
+    readErrorReply
+  }
 }
 
 class ReplyDecoder extends ParserDecoder[Reply](ReplyDecoder.parser)

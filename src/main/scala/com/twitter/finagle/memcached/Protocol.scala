@@ -47,14 +47,13 @@ object ResponseDecoder {
     )
   }
 
-
   val readValues = {
     val readKey   = readTo(WhiteSpace) map { decodeUTF8String(_) }
     val readFlags = readTo(WhiteSpace) into { b =>
-      lift(decodeDecimalInt(b)) } map { decodeFlags(_)
+      liftOpt(decodeDecimalInt(b)) } map { decodeFlags(_)
     }
 
-    val readLength = readUntil(WhiteSpace) into { b => lift(decodeDecimalInt(b)) }
+    val readLength = readUntil(WhiteSpace) into { b => liftOpt(decodeDecimalInt(b)) }
     val readCas = choice(
       " "    -> (readLine map { cas => Some(decodeDecimalInt(cas)) }),
       "\r\n" -> success(None)
@@ -62,28 +61,26 @@ object ResponseDecoder {
 
     val skipCRLF  = skipBytes(2)
 
-    val readValue = accept("VALUE ") append readKey into { key =>
-      readFlags append readLength into { length =>
-        readCas append readBytes(length) into { data =>
-          skipCRLF ^^^ Value(key, data)
+    val readValue = "VALUE " then readKey into { key =>
+      readFlags then readLength into { length =>
+        readCas then readBytes(length) through skipCRLF map { data =>
+          Value(key, data)
         }
       }
     }
 
-    (rep1(readValue) map { Values(_) }) <~ accept("END\r\n")
+    rep1(readValue) map { Values(_) } through accept("END\r\n")
   }
-
 
   val readStats = {
     val readName = readTo(WhiteSpace) map { decodeUTF8String(_) }
 
-    val readStat = accept("STAT ") append readName into { name =>
+    val readStat = "STAT " then readName into { name =>
       readLine map { value => Stat(name, value) }
     }
 
-    (rep1(readStat) map { Stats(_) }) <~ accept("END\r\n")
+    (rep1(readStat) map { Stats(_) }) through "END\r\n"
   }
-
 
   val readStorageResponse = choice(
     "STORED\r\n"     -> success(Stored),
@@ -93,17 +90,14 @@ object ResponseDecoder {
     "EXISTS\r\n"     -> success(Exists)
   )
 
-
-  val readEmptyResult = accept("END\r\n") ^^^ EmptyResult
-
+  val readEmptyResult = "END\r\n" then EmptyResult
 
   val readNumber = {
     val decimalChars = "1234567890-+".split("").tail // drop empty string
-    guard(decimalChars: _*) append readLine into { bytes =>
-      lift(decodeDecimalInt(bytes)) map { Number(_) }
+    guard(decimalChars: _*) then readLine into { bytes =>
+      liftOpt(decodeDecimalInt(bytes)) map { Number(_) }
     }
   }
-
 
   val readVersion = readLine map { v => Version(decodeUTF8String(v)) }
 

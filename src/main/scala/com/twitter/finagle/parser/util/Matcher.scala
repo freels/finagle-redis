@@ -5,14 +5,14 @@ import org.jboss.netty.buffer.{ChannelBuffers, ChannelBufferIndexFinder, Channel
 
 
 abstract class Matcher extends ChannelBufferIndexFinder {
-  /*
+  /**
    * number of readable bytes this matcher requires in order
    * to provide a conclusive match failure. A successful match
    * is still possible with fewer bytes available.
    */
   def bytesNeeded: Int
 
-  /*
+  /**
    * Tests whether or not `input` matches this beginning at `offset`
    *
    * returns the number of bytes taken by the match

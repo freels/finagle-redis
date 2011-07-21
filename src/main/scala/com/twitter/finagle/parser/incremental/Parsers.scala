@@ -6,10 +6,6 @@ import com.twitter.finagle.parser.util._
 
 object Parsers {
 
-  case class ~[+A, +B](_1: A, _2: B) {
-    override def toString = "("+ _1 +"~"+ _2 +")"
-  }
-
   // lifting values
 
   def fail(message: String) = new LiftParser(Fail(message))
@@ -20,7 +16,7 @@ object Parsers {
 
   val unit = success(())
 
-  def lift[T](o: Option[T]): Parser[T] = o match {
+  def liftOpt[T](o: Option[T]): Parser[T] = o match {
     case Some(r) => success(r)
     case None    => fail("Parse failed.")
   }
@@ -57,7 +53,7 @@ object Parsers {
   }
 
   def rep1sep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
-    val optSep = sep append success(true) or success(false)
+    val optSep = sep then success(true) or success(false)
 
     def go(prev: List[T]): Parser[List[T]] = {
       p into { t =>
@@ -112,7 +108,7 @@ object Parsers {
     guard(AlternateMatcher(choices))
   }
 
-  def not(m: Matcher) = guard(m.negate) append unit
+  def not(m: Matcher) = guard(m.negate) then unit
 
   def not(choice: String): Parser[Unit] = {
     not(new DelimiterMatcher(choice))
@@ -125,7 +121,7 @@ object Parsers {
 
   def choice[T](choices: (String, Parser[T])*): Parser[T] = {
     val (m, p)           = choices.head
-    val first: Parser[T] = accept(m) append p
+    val first: Parser[T] = accept(m) then p
     val rest             = choices.tail
 
     if (rest.isEmpty) first else first or choice(rest: _*)

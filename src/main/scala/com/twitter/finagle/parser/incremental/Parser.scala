@@ -3,12 +3,13 @@ package com.twitter.finagle.parser.incremental
 import scala.annotation.tailrec
 import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.ParseException
+import com.twitter.finagle.parser.util.ChainableTuple
 
 
 // states: continue (wait), return, error
 
 sealed abstract class ParseResult[+Out] {
-  private[incremental] def append[T](p: Parser[T]): Parser[T]
+  private[incremental] def then[T](p: Parser[T]): Parser[T]
   private[incremental] def into[O >: Out, T](f: O => Parser[T]): Parser[T]
   private[incremental] def or[O >: Out](p: Parser[O], committed: Boolean): Parser[O]
 
@@ -18,7 +19,7 @@ sealed abstract class ParseResult[+Out] {
 }
 
 case class Continue[+Out](next: Parser[Out]) extends ParseResult[Out] {
-  private[incremental] def append[T](p: Parser[T]) = end(Continue(next append p))
+  private[incremental] def then[T](p: Parser[T]) = end(Continue(next then p))
   private[incremental] def into[O >: Out, T](f: O => Parser[T]) = end(Continue(next into f))
   private[incremental] def or[O >: Out](p: Parser[O], committed: Boolean) = end(Continue(
     new OrParser(next, p, committed)
@@ -32,7 +33,7 @@ case class Continue[+Out](next: Parser[Out]) extends ParseResult[Out] {
 }
 
 case class Return[+Out](ret: Out) extends ParseResult[Out] {
-  private[incremental] def append[T](p: Parser[T]) = p
+  private[incremental] def then[T](p: Parser[T]) = p
   private[incremental] def into[O >: Out, T](f: O => Parser[T]) = f(ret)
   private[incremental] def or[O >: Out](p: Parser[O], committed: Boolean) = end(this)
 
@@ -44,7 +45,7 @@ case class Return[+Out](ret: Out) extends ParseResult[Out] {
 }
 
 case class Fail(message: String) extends ParseResult[Nothing] {
-  private[incremental] def append[T](p: Parser[T]) = end(this)
+  private[incremental] def then[T](p: Parser[T]) = end(this)
   private[incremental] def into[O >: Nothing, T](f: O => Parser[T]) = end(this)
   private[incremental] def or[O >: Nothing](p: Parser[O], committed: Boolean) = {
     if (committed) end(Error(message)) else p
@@ -56,8 +57,9 @@ case class Fail(message: String) extends ParseResult[Nothing] {
 
   def throwException() = throw new ParseException(message)
 }
+
 case class Error(message: String) extends ParseResult[Nothing] {
-  private[incremental] def append[T](p: Parser[T]) = end(this)
+  private[incremental] def then[T](p: Parser[T]) = end(this)
   private[incremental] def into[O >: Nothing, T](f: O => Parser[T]) = end(this)
   private[incremental] def or[O >: Nothing](p: Parser[O], committed: Boolean) = end(this)
 
@@ -72,7 +74,7 @@ abstract class Parser[+Out] {
 
   def decode(buffer: ChannelBuffer): ParseResult[Out]
 
-  // overridden in link parsers
+  // overridden in compound parsers
 
   def hasNext = false
 
@@ -82,10 +84,14 @@ abstract class Parser[+Out] {
 
   // basic composition
 
-  def append[T](rhs: Parser[T]) = new AppendParser(this, rhs)
+  def then[T](rhs: Parser[T]) = new ThenParser(this, rhs)
 
-  def and[T](rhs: Parser[T]): Parser[Out ~ T] = {
-    for (l <- this; r <- rhs) yield new ~(l, r)
+  def then[T](rv: T) = new ThenParser(this, success(rv))
+
+  def through[T](rhs: Parser[T]) = this into { rhs then success(_) }
+
+  def and[T, C <: ChainableTuple](rhs: Parser[T])(implicit chn: Out => C): Parser[C#Next[T]] = {
+    for (tup <- this; next <- rhs) yield chn(tup).append(next)
   }
 
   def or[O >: Out](rhs: Parser[O]) = new OrParser(this, rhs)
@@ -97,8 +103,6 @@ abstract class Parser[+Out] {
 
   def flatMap[T](f: Out => Parser[T]) = this into f
 
-  def flatMap[T](p: Parser[T]) = this and p
-
   def map[T](f: Out => T): Parser[T] = this into { o => success(f(o)) }
 
 
@@ -108,29 +112,24 @@ abstract class Parser[+Out] {
 
   def + = rep1(this)
 
-  def <~[T](rhs: Parser[T]) = this into { x => rhs append success(x) }
+  def ? = opt(this)
 
-  def >>[T](f: Out => Parser[T]) = this into f
+  def <<[T](rhs: Parser[T]) = this through rhs
 
-  def ? = this map { Some(_) } or success(None)
+  def >>[T](rhs: Parser[T]) = this then rhs
 
-  def ^?[T](f: PartialFunction[Out, T], err: Out => String) = this into { o =>
-    if (f.isDefinedAt(o)) success(f(o)) else fail(err(o))
-  }
+  def >>=[T](f: Out => Parser[T]) = this into f
 
-  def ^?[T](f: PartialFunction[Out, T]): Parser[T] = {
-    this ^? (f, _ => "Function not defined for value.")
-  }
+  def ^[T](r: T) = this then r
 
   def ^^[T](f: Out => T) = this map f
 
-  def ^^^[T](r: T) = this append success(r)
-
   def |[T](rhs: Parser[T]) = this or rhs
 
-  def ~[T](rhs: Parser[T]) = this and rhs
+  def &[T, C <: ChainableTuple](rhs: Parser[T])(implicit c: Out => C): Parser[C#Next[T]] = {
+    this and rhs
+  }
 
-  def ~>[T](rhs: Parser[T]) = this append rhs
 }
 
 
@@ -156,17 +155,17 @@ sealed abstract class CompoundParser[+Out] extends Parser[Out] {
   protected[this] def end(r: ParseResult[Out]) = new LiftParser(r)
 }
 
-class AppendParser[+Out](parser: Parser[_], tail: Parser[Out]) extends CompoundParser[Out] {
+class ThenParser[+Out](parser: Parser[_], tail: Parser[Out]) extends CompoundParser[Out] {
   override def decodeStep(buffer: ChannelBuffer) = {
-    parser.decode(buffer) append tail
+    parser.decode(buffer) then tail
   }
 
-  override def append[T](other: Parser[T]) = {
-    new AppendParser(parser, tail append other)
+  override def then[T](other: Parser[T]) = {
+    new ThenParser(parser, tail then other)
   }
 
   override def into[T](f: Out => Parser[T]): Parser[T] = {
-    new AppendParser(parser, tail into f)
+    new ThenParser(parser, tail into f)
   }
 }
 
