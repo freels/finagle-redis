@@ -63,8 +63,8 @@ object ResponseDecoder {
 
     val readValue = "VALUE " then readKey into { key =>
       readFlags then readLength into { length =>
-        readCas then readBytes(length) through skipCRLF map { data =>
-          Value(key, data)
+        readCas then readBytes(length) into { data =>
+          skipCRLF then Value(key, data)
         }
       }
     }
