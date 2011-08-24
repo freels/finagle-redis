@@ -12,7 +12,7 @@ object Reply {
   case class Error(message: ChannelBuffer) extends Reply
   case class Integer(integer: Int) extends Reply
   case class Bulk(data: Option[ChannelBuffer]) extends Reply
-  case class MultiBulk(data: Option[Seq[Bulk]]) extends Reply
+  case class MultiBulk(data: Option[Seq[Option[ChannelBuffer]]]) extends Reply
 }
 
 object ReplyDecoder {
@@ -42,7 +42,7 @@ object ReplyDecoder {
     if (count < 0) {
       success(MultiBulk(None))
     } else {
-      repN(count, readBulkReply) map { bs => MultiBulk(Some(bs)) }
+      repN(count, readBulkReply map { _.data }) map { bs => MultiBulk(Some(bs)) }
     }
   }
 

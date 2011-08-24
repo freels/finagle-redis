@@ -12,6 +12,10 @@ object EncodingHelpers {
   def encodeDecimalInt(int: Int, dest: ChannelBuffer) {
     DecimalIntCodec.encode(int, dest)
   }
+
+  def encodeDecimalIntToArray(int: Int) = {
+    DecimalIntCodec.encodeArray(int)
+  }
 }
 
 

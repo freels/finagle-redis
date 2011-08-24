@@ -4,43 +4,50 @@ import org.jboss.netty.buffer.{ChannelBuffers, ChannelBufferIndexFinder, Channel
 
 
 object DecimalIntCodec {
-  private val AsciiZero   = 48
+  private val AsciiZero   = 48.toByte
   private val MinIntBytes = Int.MinValue.toString.getBytes("US-ASCII")
+  private val MaxStringLength = 11
+
+  private def encodeToArray(int: Int, bytes: Array[Byte], offset: Int) = {
+    var i = offset
+    var n = int
+
+    do {
+      bytes(i) = (AsciiZero + (n % 10)).toByte
+      n = n / 10
+      i = i + 1
+    } while (n > 0)
+
+    bytes
+  }
+
+  def encodeArray(int: Int): Array[Byte] = {
+    if (int > 0) {
+      encodeToArray(int, new Array(MaxStringLength), 0)
+
+    } else if (int == 0) {
+      Array(AsciiZero)
+
+    } else if (int == Int.MinValue) {
+      // special-case Int.MinValue, since abs(Int.MinValue) is too large for max int
+      MinIntBytes
+
+    } else {
+      val bytes = new Array[Byte](MaxStringLength)
+      bytes(0) = '-'
+      encodeToArray(-int, bytes, 1)
+    }
+  }
 
   def encode(int: Int): ChannelBuffer = {
-    val rv = ChannelBuffers.buffer(11)
+    val rv = ChannelBuffers.buffer(MaxStringLength)
     encode(int, rv)
     rv
   }
 
+
   def encode(int: Int, dest: ChannelBuffer) {
-    if (int > 0) {
-      val bytes = new Array[Byte](10) // maximum length of an encoded positive integer
-      var i = 0
-      var n = int
-
-      do {
-        bytes(i) = (AsciiZero + (n % 10)).toByte
-        n = n / 10
-        i = i + 1
-      } while (n > 0)
-
-      do {
-        i = i - 1
-        dest.writeByte(bytes(i))
-      } while (i > 0)
-
-    } else if (int == 0) {
-      dest.writeByte(0)
-    } else {
-      // special-case Int.MinValue, since abs(Int.MinValue) is too large for max int
-      if (int == Int.MinValue) {
-        dest.writeBytes(MinIntBytes)
-      } else {
-        dest.writeByte('-')
-        encode(int * -1, dest)
-      }
-    }
+    dest.writeBytes(encodeArray(int))
   }
 
   def decode(buf: ChannelBuffer): Option[Int] = {
