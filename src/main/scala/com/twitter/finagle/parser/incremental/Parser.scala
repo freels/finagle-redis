@@ -89,7 +89,13 @@ abstract class CompoundParser[+Out] extends Parser[Out] {
 class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
 extends CompoundParser[Out] {
   override def decodeStep(buffer: ChannelBuffer) = {
-    parser.decode(buffer) flatMap f
+    //parser.decode(buffer) flatMap f
+    parser.decode(buffer) match {
+      case c: Continue[T] => new LiftParser(Continue(c.next flatMap f))
+      case r: Return[T]   => f(r.ret)
+      case f: Fail        => new LiftParser(f)
+      case e: Error       => new LiftParser(e)
+    }
   }
 }
 
@@ -101,8 +107,15 @@ extends CompoundParser[Out] {
   override def decodeStep(buffer: ChannelBuffer) = {
     val start  = buffer.readerIndex
     val result = choice.decode(buffer)
+    val newCommitted = committed || buffer.readerIndex > start
 
-    result.or(tail, committed || buffer.readerIndex > start)
+    //result.or(tail, newCommitted)
+    result match {
+      case c: Continue[Out] => new LiftParser(Continue(new OrParser(c.next, tail, newCommitted)))
+      case r: Return[Out] => new LiftParser(r)
+      case f: Fail        => if (newCommitted) new LiftParser(Error(f.message)) else tail
+      case e: Error       => new LiftParser(e)
+    }
   }
 
   override def or[O >: Out](other: Parser[O]) = {
@@ -113,10 +126,25 @@ extends CompoundParser[Out] {
 class NotParser(parser: Parser[_]) extends Parser[Unit] {
 
   def decode(buffer: ChannelBuffer) = {
-    val start = buffer.readerIndex
-    val result = parser.decode(buffer)
+    val start     = buffer.readerIndex
+    val result    = parser.decode(buffer)
+    val committed = buffer.readerIndex > start
 
-    result.negate(buffer.readerIndex > start)
+    //result.negate(committed)
+    result match {
+      case c: Continue[_] => if (committed) {
+        Error("Expected fail, but already consumed data.")
+      } else {
+        Continue(new NotParser(c.next))
+      }
+      case r: Return[_] => if (committed) {
+        Error("Expected parse fail, but already consumed data.")
+      } else {
+        Fail("Expected parse fail.")
+      }
+      case f: Fail => if (committed) Error(f.message) else Return(())
+      case e: Error => e
+    }
   }
 
   def fail() = Fail("Expected "+ parser +" to fail.")
