@@ -4,12 +4,14 @@ import com.twitter.sbt._
 class Project(info: ProjectInfo) extends StandardLibraryProject(info)
 with DefaultRepos {
 
-  //val finagle   = "com.twitter" % "finagle-core"      % "1.6.2"
+  //override def compileOptions = super.compileOptions ++ compileOptions("-optimise")
+
+  val finagle   = "com.twitter" % "finagle-core_2.9.1" % "1.11.1"
   //val memcached = "com.twitter" % "finagle-memcached" % "1.6.2"
 
   // test jars
 
-  val specs     = "org.scala-tools.testing" % "specs_2.8.1" % "1.6.6" % "test" withSources()
+  val specs     = "org.scala-tools.testing" % "specs_2.9.1" % "1.6.9" % "test" withSources()
   val objenesis = "org.objenesis" % "objenesis"    % "1.1"    % "test"
   val jmock     = "org.jmock"     % "jmock"        % "2.4.0"  % "test"
   val hamcrest  = "org.hamcrest"  % "hamcrest-all" % "1.1"    % "test"
