@@ -24,7 +24,7 @@ abstract class Parser[+Out] {
 
   def then[T](rv: T) = new ThenParser(this, success(rv))
 
-  def through[T](rhs: Parser[T]) = this into { rhs then success(_) }
+  def through[T](rhs: Parser[T]) = this flatMap { rhs then success(_) }
 
   def and[T, C <: ChainableTuple](rhs: Parser[T])(implicit chn: Out => C): Parser[C#Next[T]] = {
     for (tup <- this; next <- rhs) yield chn(tup).append(next)
@@ -32,14 +32,9 @@ abstract class Parser[+Out] {
 
   def or[O >: Out](rhs: Parser[O]) = new OrParser(this, rhs)
 
-  def into[T](f: Out => Parser[T]): Parser[T] = new IntoParser(this, f)
+  def flatMap[T](f: Out => Parser[T]): Parser[T] = new FlatMapParser(this, f)
 
-
-  // Satify monadic api
-
-  def flatMap[T](f: Out => Parser[T]) = this into f
-
-  def map[T](f: Out => T): Parser[T] = this into { o => success(f(o)) }
+  def map[T](f: Out => T): Parser[T] = this flatMap { o => success(f(o)) }
 
 
   // yay operators...this may be a bad idea.
@@ -54,7 +49,7 @@ abstract class Parser[+Out] {
 
   def >>[T](rhs: Parser[T]) = this then rhs
 
-  def >>=[T](f: Out => Parser[T]) = this into f
+  def >>=[T](f: Out => Parser[T]) = this flatMap f
 
   def ^[T](r: T) = this then r
 
@@ -100,15 +95,15 @@ class ThenParser[+Out](parser: Parser[_], tail: Parser[Out]) extends CompoundPar
     new ThenParser(parser, tail then other)
   }
 
-  override def into[T](f: Out => Parser[T]): Parser[T] = {
-    new ThenParser(parser, tail into f)
+  override def flatMap[T](f: Out => Parser[T]): Parser[T] = {
+    new ThenParser(parser, tail flatMap f)
   }
 }
 
-class IntoParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
+class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
 extends CompoundParser[Out] {
   override def decodeStep(buffer: ChannelBuffer) = {
-    parser.decode(buffer) into f
+    parser.decode(buffer) flatMap f
   }
 }
 

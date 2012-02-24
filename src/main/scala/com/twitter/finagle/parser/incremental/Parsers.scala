@@ -34,7 +34,7 @@ object Parsers {
   def rep[T](p: Parser[T]): Parser[List[T]] = {
     val optP = opt(p)
 
-    def go(prev: List[T]): Parser[List[T]] = optP into {
+    def go(prev: List[T]): Parser[List[T]] = optP flatMap {
       case Some(t) => go(t :: prev)
       case None    => success(prev)
     }
@@ -56,8 +56,8 @@ object Parsers {
     val optSep = sep then success(true) or success(false)
 
     def go(prev: List[T]): Parser[List[T]] = {
-      p into { t =>
-        optSep into {
+      p flatMap { t =>
+        optSep flatMap {
           case true  => go(t :: prev)
           case false => success(t :: prev)
         }
@@ -88,7 +88,7 @@ object Parsers {
 
   // matching parsers
 
-  def accept(m: Matcher) = new MatchParser(m) into readBytes
+  def accept(m: Matcher) = new MatchParser(m) flatMap { readBytes(_) }
 
   implicit def accept(choice: String): Parser[ChannelBuffer] = {
     accept(new DelimiterMatcher(choice))

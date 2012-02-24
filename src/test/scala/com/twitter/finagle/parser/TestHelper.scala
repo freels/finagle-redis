@@ -19,6 +19,7 @@ class BenchmarkSpecification extends Specification {
   def benchmark(name: String, iters: Int)(f: => Unit) {
     // warmup
     (1 to (iters / 10)) foreach { _ => f }
+    Thread.sleep(0)
 
     val total   = time { (1 to iters) foreach { _ => f } }
     val perIter = total / iters.toDouble
