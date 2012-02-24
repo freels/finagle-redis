@@ -8,7 +8,7 @@ import org.jboss.netty.handler.codec.frame.FrameDecoder
 class ParserDecoder[+Output](parser: Parser[Output]) extends FrameDecoder {
   private[this] var state = parser
 
-  final def start() {
+  def start() {
     state = parser
   }
 

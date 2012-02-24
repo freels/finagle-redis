@@ -24,7 +24,7 @@ object Redis {
 
   val readMultiBulk = accept("*") then {
     readInt flatMap { count =>
-      repN(count, readBulk)
+      repN(count, readSingleBulk)
     }
   }
 }
@@ -39,7 +39,7 @@ object IncrementalParserPerfSpec extends BenchmarkSpecification {
     for (x <- 1 to 10) {
       benchmark("test 1", 10000) {
         buf1.resetReaderIndex
-        readMultiBulk.decode(buf1)
+        Redis.readMultiBulk.decode(buf1)
       }
     }
   }

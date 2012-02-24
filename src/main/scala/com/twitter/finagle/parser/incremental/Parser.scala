@@ -20,9 +20,9 @@ abstract class Parser[+Out] {
 
   // basic composition
 
-  def then[T](rhs: Parser[T]) = new ThenParser(this, rhs)
+  def then[T](rhs: Parser[T]) = this flatMap { _ => rhs }
 
-  def then[T](rv: T) = new ThenParser(this, success(rv))
+  def then[T](rv: T) = this flatMap { _ => success(rv) }
 
   def through[T](rhs: Parser[T]) = this flatMap { rhs then success(_) }
 
@@ -69,7 +69,7 @@ class LiftParser[+Out](r: ParseResult[Out]) extends Parser[Out] {
 }
 
 
-sealed abstract class CompoundParser[+Out] extends Parser[Out] {
+abstract class CompoundParser[+Out] extends Parser[Out] {
   override def hasNext = true
 
   def decode(buffer: ChannelBuffer): ParseResult[Out] = {
@@ -84,20 +84,6 @@ sealed abstract class CompoundParser[+Out] extends Parser[Out] {
   }
 
   protected[this] def end(r: ParseResult[Out]) = new LiftParser(r)
-}
-
-class ThenParser[+Out](parser: Parser[_], tail: Parser[Out]) extends CompoundParser[Out] {
-  override def decodeStep(buffer: ChannelBuffer) = {
-    parser.decode(buffer) then tail
-  }
-
-  override def then[T](other: Parser[T]) = {
-    new ThenParser(parser, tail then other)
-  }
-
-  override def flatMap[T](f: Out => Parser[T]): Parser[T] = {
-    new ThenParser(parser, tail flatMap f)
-  }
 }
 
 class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
