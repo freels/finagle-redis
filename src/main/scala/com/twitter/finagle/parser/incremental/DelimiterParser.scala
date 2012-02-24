@@ -10,13 +10,13 @@ class DelimiterParser(matcher: Matcher) extends Parser[ChannelBuffer] {
 
   def this(string: String) = this(new DelimiterMatcher(string))
 
-  def decode(buffer: ChannelBuffer) = {
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
     val frameLength = buffer.bytesBefore(matcher)
 
     if (frameLength < 0) {
-      Continue(this)
+      state.cont(this)
     } else {
-      Return(buffer.readSlice(frameLength))
+      state.ret(buffer.readSlice(frameLength))
     }
   }
 }
@@ -27,15 +27,15 @@ class ConsumingDelimiterParser(matcher: Matcher) extends Parser[ChannelBuffer] {
 
   def this(string: String) = this(new DelimiterMatcher(string))
 
-  def decode(buffer: ChannelBuffer) = {
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
     val frameLength = buffer.bytesBefore(matcher)
 
     if (frameLength < 0) {
-      Continue(this)
+      state.cont(this)
     } else {
       val frame = buffer.readSlice(frameLength)
       buffer.skipBytes(matcher.bytesMatching(buffer, buffer.readerIndex))
-      Return(frame)
+      state.ret(frame)
     }
   }
 }

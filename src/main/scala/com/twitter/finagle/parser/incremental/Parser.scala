@@ -4,11 +4,62 @@ import scala.annotation.tailrec
 import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.parser.util.ChainableTuple
 
+object ParseState {
+  val IsEmpty = 0.toByte
+  val IsCont  = 1.toByte
+  val IsRet   = 2.toByte
+  val IsFail  = 3.toByte
+  val IsError = 4.toByte
+}
+
+import ParseState._
+
+final class ParseState {
+
+  var _type: Byte      = IsEmpty
+  var _cont: Parser[_] = _
+  var _ret: Any        = _
+  var _msg: String     = _
+
+  @inline def cont(p: Parser[_]) { _type = IsCont;  _cont = p }
+  @inline def ret(r: Any)        { _type = IsRet;   _ret  = r }
+  @inline def fail(msg: String)  { _type = IsFail;  _msg  = msg }
+  @inline def error(msg: String) { _type = IsError; _msg  = msg }
+
+  @inline def isCont  = _type == IsCont
+  @inline def isRet   = _type == IsRet
+  @inline def isFail  = _type == IsFail
+  @inline def isError = _type == IsError
+
+  def t = _type
+  def ret[T] = _ret.asInstanceOf[T]
+  def cont[T] = _cont.asInstanceOf[Parser[T]]
+  def errorMessage = _msg
+
+  def ifCont(f: => Unit)  { if (isCont)  f }
+  def ifRet(f: => Unit)   { if (isRet)   f }
+  def ifFail(f: => Unit)  { if (isFail)  f }
+  def ifError(f: => Unit) { if (isError) f }
+
+  def toResult[T]: ParseResult[T] = _type match {
+    case IsRet   => Return(_ret.asInstanceOf[T])
+    case IsCont  => Continue(_cont.asInstanceOf[Parser[T]])
+    case IsFail  => Fail(_msg)
+    case IsError => Error(_msg)
+    case IsEmpty => sys.error("empty state")
+  }
+}
 
 abstract class Parser[+Out] {
   import Parsers._
 
-  def decode(buffer: ChannelBuffer): ParseResult[Out]
+  def decode(buffer: ChannelBuffer) = {
+    val state = new ParseState
+    decodeWithState(state, buffer)
+    state.toResult[Out]
+  }
+
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer)
 
   // overridden in compound parsers
 
@@ -65,36 +116,43 @@ abstract class Parser[+Out] {
 
 
 class LiftParser[+Out](r: ParseResult[Out]) extends Parser[Out] {
-  def decode(buffer: ChannelBuffer) = r
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
+    r match {
+      case Continue(next) => state.cont(next)
+      case Return(ret)    => state.ret(ret)
+      case Fail(msg)      => state.fail(msg)
+      case Error(msg)     => state.error(msg)
+    }
+  }
 }
 
 
 abstract class CompoundParser[+Out] extends Parser[Out] {
   override def hasNext = true
 
-  def decode(buffer: ChannelBuffer): ParseResult[Out] = {
-    var curr: Parser[Out] = this
+  // def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
+  //   var curr: Parser[Out] = this
 
-    @tailrec
-    def step(p: Parser[Out]): ParseResult[Out] = {
-      if (p.hasNext) step(p.decodeStep(buffer)) else p.decode(buffer)
-    }
+  //   @tailrec
+  //   def step(p: Parser[Out]): ParseResult[Out] = {
+  //     if (p.hasNext) step(p.decodeStep(state, buffer)) else p.decode(buffer)
+  //   }
 
-    step(this)
-  }
+  //   step(this)
+  // }
 
   protected[this] def end(r: ParseResult[Out]) = new LiftParser(r)
 }
 
 class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
 extends CompoundParser[Out] {
-  override def decodeStep(buffer: ChannelBuffer) = {
-    //parser.decode(buffer) flatMap f
-    parser.decode(buffer) match {
-      case c: Continue[T] => end(Continue(c.next flatMap f))
-      case r: Return[T]   => f(r.ret)
-      case f: Fail        => end(f)
-      case e: Error       => end(e)
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
+    parser.decodeWithState(state, buffer)
+
+    if (state.isRet) {
+      f(state.ret).decodeWithState(state, buffer)
+    } else if (state.isCont) {
+      state.cont(state.cont flatMap f)
     }
   }
 }
@@ -104,17 +162,21 @@ extends CompoundParser[Out] {
 
   def this(p: Parser[Out], t: Parser[Out]) = this(p, t, false)
 
-  override def decodeStep(buffer: ChannelBuffer) = {
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
     val start  = buffer.readerIndex
-    val result = choice.decode(buffer)
+    choice.decodeWithState(state, buffer)
     val newCommitted = committed || buffer.readerIndex > start
 
     //result.or(tail, newCommitted)
-    result match {
-      case c: Continue[Out] => end(Continue(new OrParser(c.next, tail, newCommitted)))
-      case r: Return[Out] => end(r)
-      case f: Fail        => if (newCommitted) end(Error(f.message)) else tail
-      case e: Error       => end(e)
+
+    if (state.isCont) {
+      state.cont(new OrParser(state.cont, tail, newCommitted))
+    } else if (state.isFail) {
+      if (newCommitted) {
+        state.error(state.errorMessage)
+      } else {
+        tail.decodeWithState(state, buffer)
+      }
     }
   }
 
@@ -125,28 +187,30 @@ extends CompoundParser[Out] {
 
 class NotParser(parser: Parser[_]) extends Parser[Unit] {
 
-  def decode(buffer: ChannelBuffer) = {
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) = {
     val start     = buffer.readerIndex
-    val result    = parser.decode(buffer)
+    parser.decodeWithState(state, buffer)
     val committed = buffer.readerIndex > start
 
     //result.negate(committed)
-    result match {
-      case c: Continue[_] => if (committed) {
-        Error("Expected fail, but already consumed data.")
+    if (state.isCont) {
+      if (committed) {
+        state.error("Expected "+ parser +" to fail, but already consumed data.")
       } else {
-        Continue(new NotParser(c.next))
+        state.cont(new NotParser(state.cont))
       }
-      case r: Return[_] => if (committed) {
-        Error("Expected parse fail, but already consumed data.")
+    } else if (state.isRet) {
+      if (committed) {
+        state.error("Expected "+ parser +" to fail, but already consumed data.")
       } else {
-        Fail("Expected parse fail.")
+        state.fail("Expected "+ parser +" to fail.")
       }
-      case f: Fail => if (committed) Error(f.message) else Return(())
-      case e: Error => e
+    } else if (state.isFail) {
+      if (committed) {
+        state.error(state.errorMessage)
+      } else {
+        state.ret(())
+      }
     }
   }
-
-  def fail() = Fail("Expected "+ parser +" to fail.")
-  def error() = Error("Expected "+ parser +" to fail, but already consumed data.")
 }

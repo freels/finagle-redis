@@ -12,7 +12,7 @@ class BytesParser(bytesLeft: Int, dataOpt: Option[ChannelBuffer]) extends Parser
 
   import BytesParser._
 
-  def decode(buffer: ChannelBuffer) = {
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
     val readable = buffer.readableBytes
 
     if (readable >= ChunkSize || readable >= bytesLeft) {
@@ -26,26 +26,26 @@ class BytesParser(bytesLeft: Int, dataOpt: Option[ChannelBuffer]) extends Parser
       if (bytesLeft > 0) buffer.readBytes(data, bytesLeft - newLeft)
 
       if (newLeft == 0) {
-        Return(data)
+        state.ret(data)
       } else {
-        Continue(new BytesParser(newLeft, Some(data)))
+        state.cont(new BytesParser(newLeft, Some(data)))
       }
     } else {
-      Continue(this)
+      state.cont(this)
     }
   }
 }
 
 class SkipBytesParser(toRead: Int) extends Parser[Unit] {
-  def decode(buffer: ChannelBuffer) = {
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) = {
     val readable = buffer.readableBytes
 
     if (readable < toRead) {
       buffer.skipBytes(readable)
-      Continue(new SkipBytesParser(toRead - readable))
+      state.cont(new SkipBytesParser(toRead - readable))
     } else {
       buffer.skipBytes(toRead)
-      Return(())
+      state.ret(())
     }
   }
 }

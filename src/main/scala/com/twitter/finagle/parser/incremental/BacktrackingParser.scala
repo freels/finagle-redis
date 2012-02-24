@@ -7,33 +7,27 @@ class BacktrackingParser[+Out](inner: Parser[Out], offset: Int) extends Parser[O
 
   def this(inner: Parser[Out]) = this(inner, 0)
 
-  def decode(buffer: ChannelBuffer) = {
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
     val start = buffer.readerIndex
 
     buffer.readerIndex(start + offset)
 
-    // complains that Out is unchecked here, but this cannot fail, so
-    // live with the warning.
-    inner.decode(buffer) match {
-      case r @ Return(_) => r
-      case Continue(next) => {
-        if (next == inner && buffer.readerIndex == (start + offset)) {
-          buffer.readerIndex(start)
-          Continue(this)
-        } else {
-          val newOffset = buffer.readerIndex - start
-          buffer.readerIndex(start)
-          Continue(new BacktrackingParser(next, newOffset))
-        }
-      }
-      case e: Fail => {
+    inner.decodeWithState(state, buffer)
+
+    if (state.isCont) {
+      if (state.cont == inner && buffer.readerIndex == (start + offset)) {
         buffer.readerIndex(start)
-        e
-      }
-      case Error(message) => {
+        state.cont(this)
+      } else {
+        val newOffset = buffer.readerIndex - start
         buffer.readerIndex(start)
-        Fail(message)
+        state.cont(new BacktrackingParser(state.cont, newOffset))
       }
+    } else if (state.isFail) {
+      buffer.readerIndex(start)
+    } else if (state.isError) {
+      buffer.readerIndex(start)
+      state.fail(state.errorMessage)
     }
   }
 }
