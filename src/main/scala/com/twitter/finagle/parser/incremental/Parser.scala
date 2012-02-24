@@ -91,10 +91,10 @@ extends CompoundParser[Out] {
   override def decodeStep(buffer: ChannelBuffer) = {
     //parser.decode(buffer) flatMap f
     parser.decode(buffer) match {
-      case c: Continue[T] => new LiftParser(Continue(c.next flatMap f))
+      case c: Continue[T] => end(Continue(c.next flatMap f))
       case r: Return[T]   => f(r.ret)
-      case f: Fail        => new LiftParser(f)
-      case e: Error       => new LiftParser(e)
+      case f: Fail        => end(f)
+      case e: Error       => end(e)
     }
   }
 }
@@ -111,10 +111,10 @@ extends CompoundParser[Out] {
 
     //result.or(tail, newCommitted)
     result match {
-      case c: Continue[Out] => new LiftParser(Continue(new OrParser(c.next, tail, newCommitted)))
-      case r: Return[Out] => new LiftParser(r)
-      case f: Fail        => if (newCommitted) new LiftParser(Error(f.message)) else tail
-      case e: Error       => new LiftParser(e)
+      case c: Continue[Out] => end(Continue(new OrParser(c.next, tail, newCommitted)))
+      case r: Return[Out] => end(r)
+      case f: Fail        => if (newCommitted) end(Error(f.message)) else tail
+      case e: Error       => end(e)
     }
   }
 

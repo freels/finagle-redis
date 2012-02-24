@@ -16,7 +16,7 @@ object Redis {
 
   val readBulk = readInt flatMap { length =>
     readBytes(length) flatMap { bytes =>
-      readBytes(2) then success(bytes)
+      skipBytes(2) then success(bytes)
     }
   }
 
