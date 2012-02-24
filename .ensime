@@ -1,0 +1,11 @@
+;; This config was generated using ensime-config-gen. Feel free to customize its contents manually.
+
+(
+
+:project-package "com.twitter.finagle.redis"
+
+:use-sbt t
+
+:compile-jars ("lib_managed")
+
+)

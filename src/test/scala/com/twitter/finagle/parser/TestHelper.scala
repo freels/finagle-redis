@@ -9,6 +9,24 @@ import com.twitter.finagle.parser.incremental.{Error => ParseError}
 import com.twitter.finagle.parser.incremental._
 
 
+class BenchmarkSpecification extends Specification {
+  def time(f: => Unit) = {
+    val s = System.currentTimeMillis
+    f
+    System.currentTimeMillis - s
+  }
+
+  def benchmark(name: String, iters: Int)(f: => Unit) {
+    // warmup
+    (1 to (iters / 10)) foreach { _ => f }
+
+    val total   = time { (1 to iters) foreach { _ => f } }
+    val perIter = total / iters.toDouble
+
+    println("%s: %s msec (%.3f per iteration)" format (name, total, perIter))
+  }
+}
+
 class ParserSpecification extends Specification {
   class RichParser[Out](p: Parser[Out]) {
     def mustParse(source: ChannelBuffer) = {

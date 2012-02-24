@@ -4,8 +4,8 @@ import com.twitter.sbt._
 class Project(info: ProjectInfo) extends StandardLibraryProject(info)
 with DefaultRepos {
 
-  val finagle   = "com.twitter" % "finagle-core"      % "1.6.2"
-  val memcached = "com.twitter" % "finagle-memcached" % "1.6.2"
+  //val finagle   = "com.twitter" % "finagle-core"      % "1.6.2"
+  //val memcached = "com.twitter" % "finagle-memcached" % "1.6.2"
 
   // test jars
 
