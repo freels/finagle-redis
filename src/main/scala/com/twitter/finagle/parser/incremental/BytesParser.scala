@@ -4,34 +4,42 @@ import org.jboss.netty.buffer.{ChannelBuffers, ChannelBuffer}
 
 
 object BytesParser {
-  val ChunkSize = 256
+  val ChunkSize = 1024
 }
 
-class BytesParser(bytesLeft: Int, dataOpt: Option[ChannelBuffer]) extends Parser[ChannelBuffer] {
-  def this(bytes: Int) = this(bytes, None)
+class BytesParser(bytesLeft: Int, data: ChannelBuffer = null) extends Parser[ChannelBuffer] {
 
   import BytesParser._
 
   def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-    val readable = buffer.readableBytes
+    if (data eq null) {
+      if (buffer.readableBytes >= bytesLeft) {
+        state.ret(buffer.readSlice(bytesLeft))
 
-    if (readable >= ChunkSize || readable >= bytesLeft) {
-      val data = dataOpt getOrElse ChannelBuffers.buffer(bytesLeft)
+      } else if (buffer.readableBytes >= ChunkSize) {
+        val newData = ChannelBuffers.buffer(bytesLeft)
 
-      val newLeft = (bytesLeft - readable) match {
-        case l if l < 0 => 0
-        case l          => l
-      }
+        buffer.readBytes(newData, ChunkSize)
+        state.cont(new BytesParser(bytesLeft - ChunkSize, newData))
 
-      if (bytesLeft > 0) buffer.readBytes(data, bytesLeft - newLeft)
-
-      if (newLeft == 0) {
-        state.ret(data)
       } else {
-        state.cont(new BytesParser(newLeft, Some(data)))
+        state.cont(this)
       }
     } else {
-      state.cont(this)
+      if (buffer.readableBytes >= bytesLeft) {
+        var newLeft = bytesLeft - buffer.readableBytes
+        if (newLeft < 0) newLeft = 0
+
+        buffer.readBytes(data, bytesLeft - newLeft)
+        state.ret(data)
+
+      } else if (buffer.readableBytes >= ChunkSize) {
+        buffer.readBytes(data, ChunkSize)
+        state.cont(new BytesParser(bytesLeft - ChunkSize, data))
+
+      } else {
+        state.cont(this)
+      }
     }
   }
 }
