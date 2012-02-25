@@ -71,18 +71,8 @@ object Parsers {
     rep1sep(p, sep) or success[List[T]](Nil)
   }
 
-  def repN[T](total: Int, parser: Parser[T]) = {
-    def go(i: Int, prev: List[T]): Parser[Seq[T]] = {
-      if (i == total) {
-        success(prev.reverse)
-      } else {
-        parser flatMap { rv =>
-          go(i + 1, rv :: prev)
-        }
-      }
-    }
-
-    go(0, Nil)
+  def repN[T](total: Int, parser: Parser[T]): Parser[Seq[T]] = {
+    new RepeatParser(parser, total)
   }
 
 
