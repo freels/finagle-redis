@@ -5,42 +5,61 @@ import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.parser.util.ChainableTuple
 
 object ParseState {
-  val IsEmpty = 0.toByte
-  val IsCont  = 1.toByte
-  val IsRet   = 2.toByte
-  val IsFail  = 3.toByte
-  val IsError = 4.toByte
+  trait StateProcessor {
+    def processFlatMap[T](s: ParseState, b: ChannelBuffer, f: T => Parser[Any]) {}
+    def processThen[T](s: ParseState, b: ChannelBuffer, n: Parser[Any]) {}
+  }
+
+  final object EmptyState extends StateProcessor
+  final object FailState  extends StateProcessor
+  final object ErrorState extends StateProcessor
+
+  final object ContState extends StateProcessor {
+    override def processFlatMap[T](s: ParseState, b: ChannelBuffer, f: T => Parser[Any]) {
+      s.cont(s.nextParser flatMap f)
+    }
+  }
+
+  final object RetState extends StateProcessor {
+    override def processFlatMap[T](s: ParseState, b: ChannelBuffer, f: T => Parser[Any]) {
+      f(s.value).decodeWithState(s, b)
+    }
+  }
 }
 
 import ParseState._
 
 final class ParseState {
 
-  var _type: Byte        = IsEmpty
-  var _parser: Parser[_] = _
-  var _value: Any        = _
-  var _msg: String       = _
+  var _type: StateProcessor = EmptyState
+  var _parser: Parser[_]    = _
+  var _value: Any           = _
+  var _msg: String          = _
 
-  @inline def cont(p: Parser[_]) { _type = IsCont;  _parser = p }
-  @inline def ret(r: Any)        { _type = IsRet;   _value  = r }
-  @inline def fail(msg: String)  { _type = IsFail;  _msg    = msg }
-  @inline def error(msg: String) { _type = IsError; _msg    = msg }
+  @inline def cont(p: Parser[_]) { _type = ContState;  _parser = p }
+  @inline def ret(r: Any)        { _type = RetState;   _value  = r }
+  @inline def fail(msg: String)  { _type = FailState;  _msg    = msg }
+  @inline def error(msg: String) { _type = ErrorState; _msg    = msg }
 
-  @inline def isCont  = _type == IsCont
-  @inline def isRet   = _type == IsRet
-  @inline def isFail  = _type == IsFail
-  @inline def isError = _type == IsError
+  @inline def isCont  = _type == ContState
+  @inline def isRet   = _type == RetState
+  @inline def isFail  = _type == FailState
+  @inline def isError = _type == ErrorState
+
+  @inline def processFlatMap[T](b: ChannelBuffer, f: T => Parser[_]) {
+    _type.processFlatMap(this, b, f)
+  }
 
   def value[T]      = _value.asInstanceOf[T]
   def nextParser[T] = _parser.asInstanceOf[Parser[T]]
   def errorMessage  = _msg
 
   def toResult[T]: ParseResult[T] = _type match {
-    case IsRet   => Return(_value.asInstanceOf[T])
-    case IsCont  => Continue(_parser.asInstanceOf[Parser[T]])
-    case IsFail  => Fail(_msg)
-    case IsError => Error(_msg)
-    case IsEmpty => sys.error("empty state")
+    case RetState   => Return(_value.asInstanceOf[T])
+    case ContState  => Continue(_parser.asInstanceOf[Parser[T]])
+    case FailState  => Fail(_msg)
+    case ErrorState => Error(_msg)
+    case EmptyState => sys.error("empty state")
   }
 }
 
@@ -49,12 +68,12 @@ abstract class Parser[+Out] {
 
   def decode(buffer: ChannelBuffer) = {
     val state = new ParseState
-
     decodeWithState(state, buffer)
     state.toResult[Out]
   }
 
   def decodeWithState(state: ParseState, buffer: ChannelBuffer)
+
 
   // basic composition
 
@@ -118,11 +137,12 @@ extends Parser[Out] {
   def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
     parser.decodeWithState(state, buffer)
 
-    if (state.isRet) {
-      f(state.value).decodeWithState(state, buffer)
-    } else if (state.isCont) {
-      state.cont(state.nextParser flatMap f)
-    }
+    state.processFlatMap(buffer, f)
+    // if (state.isRet) {
+    //   f(state.value).decodeWithState(state, buffer)
+    // } else if (state.isCont) {
+    //   state.cont(state.nextParser flatMap f)
+    // }
   }
 }
 
@@ -183,8 +203,6 @@ extends Parser[Out] {
     choice.decodeWithState(state, buffer)
     val newCommitted = committed || buffer.readerIndex > start
 
-    //result.or(tail, newCommitted)
-
     if (state.isCont) {
       state.cont(new OrParser(state.nextParser, tail, newCommitted))
     } else if (state.isFail) {
@@ -208,7 +226,6 @@ final class NotParser(parser: Parser[_]) extends Parser[Unit] {
     parser.decodeWithState(state, buffer)
     val committed = buffer.readerIndex > start
 
-    //result.negate(committed)
     if (state.isCont) {
       if (committed) {
         state.error("Expected "+ parser +" to fail, but already consumed data.")
