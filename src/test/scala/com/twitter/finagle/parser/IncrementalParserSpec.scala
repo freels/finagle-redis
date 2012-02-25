@@ -16,45 +16,69 @@ object ParserSpec extends ParserSpecification {
     parser mustParse "one\r\ntwo\r\n" andReturn "one" readingBytes(5)
   }
 
-  "BytesParser" in {
-    val parser = readBytes(513)
-    val input  = ChannelBuffers.dynamicBuffer
-
-    parser.decode(input) mustEqual Continue(parser)
-    for (i <- 1 until BytesParser.ChunkSize) {
-      input.writeByte('x')
-    }
+  "BytesParser under ChunkSize" in {
+    val readCount = BytesParser.ChunkSize - 1
+    val parser    = readBytes(readCount)
+    val input     = Buffer()
 
     parser.decode(input) mustEqual Continue(parser)
     input.readerIndex    mustEqual 0
 
+    for (i <- 1 until readCount) {
+      input.writeByte('x')
+      parser.decode(input) mustEqual Continue(parser)
+      input.readerIndex    mustEqual 0
+    }
+
     input.writeByte('x')
+    val Return(result) = parser.decode(input)
 
-    val Continue(next) = parser.decode(input)
-
-    next must notBe(parser)
-    input.readerIndex mustEqual BytesParser.ChunkSize
+    asString(result) mustEqual ("x" * readCount)
+    input.readerIndex mustEqual readCount
   }
 
-  // "ChainedParser" in {
-  //   val first  = readByte
-  //   val next   = readUnsignedByte
-  //   val parser = new ChainedParser(first, next)
+  "BytesParser over ChunkSize" in {
+    val readCount = (BytesParser.ChunkSize * 2) + 1
+    val parser    = readBytes(readCount)
+    val input     = Buffer()
 
-  //   parser mustParse ""   andContinue(parser)
-  //   parser mustParse "x"  andContinue(next)
-  //   parser mustParse "xx" andReturn()
-  // }
+    parser.decode(input) mustEqual Continue(parser)
+    input.readerIndex    mustEqual 0
 
-  // "BacktrackingParser" in {
-  //   val parser = guard("xx") { Parsers.fail(new ParseException("whoops")) }
-  //   val backtracking = new BacktrackingParser(parser)
+    for (i <- 1 until BytesParser.ChunkSize) {
+      input.writeByte('x')
+      parser.decode(input) mustEqual Continue(parser)
+      input.readerIndex    mustEqual 0
+    }
 
-  //   parser       mustParse "xxy" andFail() readingBytes(2)
-  //   backtracking mustParse "xxy" andFail() readingBytes(0)
+    input.writeByte('x')
+    val Continue(next) = parser.decode(input)
 
-  //   backtracking or const("foo") mustParse "xxy" andReturn("foo") readingBytes(0)
-  // }
+    next must notBe (parser)
+    input.readerIndex mustEqual BytesParser.ChunkSize
+
+    next.decode(input) mustEqual Continue(next)
+    input.readerIndex mustEqual BytesParser.ChunkSize
+
+    for (i <- 1 until BytesParser.ChunkSize) {
+      input.writeByte('x')
+      next.decode(input) mustEqual Continue(next)
+      input.readerIndex mustEqual BytesParser.ChunkSize
+    }
+
+    input.writeByte('x')
+    val Continue(next2) = next.decode(input)
+
+    next2 must notBe (next)
+    input.readerIndex mustEqual (BytesParser.ChunkSize * 2)
+
+    next2.decode(input) mustEqual Continue(next2)
+
+    input.writeByte('x')
+    val Return(result) = next2.decode(input)
+
+    asString(result) mustEqual ("x" * readCount)
+  }
 
   "Parsers" in {
     "readTo" in {

@@ -117,4 +117,8 @@ class ParserSpecification extends Specification {
   def Buffer(s: String) = {
     ChannelBuffers.wrappedBuffer(s.getBytes("UTF-8"))
   }
+
+  def Buffer() = {
+    ChannelBuffers.dynamicBuffer
+  }
 }
