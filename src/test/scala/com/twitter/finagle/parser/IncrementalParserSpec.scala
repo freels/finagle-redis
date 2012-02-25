@@ -269,5 +269,13 @@ object ParserSpec extends ParserSpecification {
       readFloat mustParse ""    andContinue()
       readFloat mustParse "byt" andContinue()
     }
+
+    "decodeDecimalInt" in {
+      val parser = readLine map { decodeDecimalInt(_) }
+
+      parser mustParse "123\r\n"  andReturn  123
+      parser mustParse "+123\r\n" andReturn  123
+      parser mustParse "-123\r\n" andReturn -123
+    }
   }
 }

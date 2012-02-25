@@ -10,9 +10,7 @@ object Redis {
   import Parsers._
   import DecodingHelpers._
 
-  val readInt = readLine flatMap { bytes =>
-    liftOpt(decodeDecimalInt(bytes))
-  }
+  val readInt = readLine map { decodeDecimalInt(_) }
 
   val skipCRLF = skipBytes(2)
 
@@ -38,7 +36,7 @@ object IncrementalParserPerfSpec extends BenchmarkSpecification {
     val bytes = ("*"+count+"\r\n" + ("$6\r\nfoobar\r\n" * count)).getBytes
     val buf1 = ChannelBuffers.wrappedBuffer(bytes)
 
-    for (x <- 1 to 10) {
+    for (x <- 1 to 1000) {
       benchmark("test 1", 10000) {
         buf1.resetReaderIndex
         Redis.readMultiBulk.decode(buf1)

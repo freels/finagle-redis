@@ -1,5 +1,6 @@
 package com.twitter.finagle.parser.util
 
+import com.twitter.finagle.parser.ParseException
 import org.jboss.netty.buffer.{ChannelBuffers, ChannelBufferIndexFinder, ChannelBuffer}
 
 
@@ -50,38 +51,42 @@ object DecimalIntCodec {
     dest.writeBytes(encodeArray(int))
   }
 
-  def decode(buf: ChannelBuffer): Option[Int] = {
+  def decode(buf: ChannelBuffer): Int = {
     decode(buf, buf.readableBytes)
   }
 
-  def decode(buf: ChannelBuffer, numBytes: Int): Option[Int] = {
-    val last  = numBytes - 1
-    var i     = last
-    var rv    = 0
-    var lower = 0
-    var isNegative = false
+  def decode(buf: ChannelBuffer, numBytes: Int): Int = {
+    val digits     = numBytes - 1 // assume a prefix here. we'll add it back later.
+    var rv         = 0
+    var isNegative = 1
 
-    if (buf.getByte(buf.readerIndex) == '-') {
-      lower = 1
-      isNegative = true
-    } else if (buf.getByte(buf.readerIndex) == '+') {
-      lower = 1
+    var c = buf.readByte
+
+    if (c == '-') {
+      isNegative = -1
+    } else if (c != '+') {
+      rv += digitToDecimal(c, digits)
     }
 
-    while (i >= lower) {
-      val c = buf.getByte(buf.readerIndex + i) - AsciiZero
-
-      if (c < 0 || c > 9) return None
-      rv = rv + c * pow(10, last - i)
-      i = i - 1
+    var i = 1
+    while (i <= digits) {
+      rv += digitToDecimal(buf.readByte, digits - i)
+      i += 1
     }
 
-    if (isNegative) Some(rv * -1) else Some(rv)
+    rv * isNegative
   }
 
   // helpers
 
-  private def pow(x: Int, p: Int) = {
+  @inline def digitToDecimal(d: Byte, exp: Int) = {
+    val n = d - AsciiZero
+    if (n < 0 || n > 9) throw new ParseException("Invalid decimal int")
+
+    pow(10, exp) * n
+  }
+
+  @inline def pow(x: Int, p: Int) = {
     var rv = 1
     var j  = 0
 

@@ -32,51 +32,51 @@ object DecodingHelpers {
     DecimalIntCodec.decode(buf, numBytes)
   }
 
-  def decodeFlags(num: Byte): Array[Boolean] = {
-    val flags = new Array[Boolean](8)
+  def decodeBits(num: Byte): Array[Boolean] = {
+    val bits = new Array[Boolean](8)
     var i     = 0
 
     do {
-      flags(i) = (num & (1 << i)) != 0
+      bits(i) = (num & (1 << i)) != 0
       i = i + 1
-    } while (i < flags.length)
+    } while (i < bits.length)
 
-    flags
+    bits
   }
 
-  def decodeFlags(num: Short): Array[Boolean] = {
-    val flags = new Array[Boolean](16)
+  def decodeBits(num: Short): Array[Boolean] = {
+    val bits = new Array[Boolean](16)
     var i     = 0
 
     do {
-      flags(i) = (num & (1 << i)) != 0
+      bits(i) = (num & (1 << i)) != 0
       i = i + 1
-    } while (i < flags.length)
+    } while (i < bits.length)
 
-    flags
+    bits
   }
 
-  def decodeFlags(num: Int): Array[Boolean] = {
-    val flags = new Array[Boolean](32)
+  def decodeBits(num: Int): Array[Boolean] = {
+    val bits = new Array[Boolean](32)
     var i     = 0
 
     do {
-      flags(i) = (num & (1 << i)) != 0
+      bits(i) = (num & (1 << i)) != 0
       i = i + 1
-    } while (i < flags.length)
+    } while (i < bits.length)
 
-    flags
+    bits
   }
 
-  def decodeFlags(num: Long): Array[Boolean] = {
-    val flags = new Array[Boolean](64)
+  def decodeBits(num: Long): Array[Boolean] = {
+    val bits = new Array[Boolean](64)
     var i     = 0
 
     do {
-      flags(i) = (num & (1 << i)) != 0
+      bits(i) = (num & (1 << i)) != 0
       i = i + 1
-    } while (i < flags.length)
+    } while (i < bits.length)
 
-    flags
+    bits
   }
 }
