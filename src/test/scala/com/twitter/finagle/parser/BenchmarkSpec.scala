@@ -14,9 +14,11 @@ object Redis {
     liftOpt(decodeDecimalInt(bytes))
   }
 
+  val skipCRLF = skipBytes(2)
+
   val readBulk = readInt flatMap { length =>
     readBytes(length) flatMap { bytes =>
-      skipBytes(2) then success(bytes)
+      skipCRLF then success(bytes)
     }
   }
 
