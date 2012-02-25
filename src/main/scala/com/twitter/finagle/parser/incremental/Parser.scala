@@ -157,8 +157,37 @@ extends CompoundParser[Out] {
   }
 }
 
-class OrParser[+Out](choice: Parser[Out], tail: Parser[Out], committed: Boolean)
-extends CompoundParser[Out] {
+final class RepeatParser[Out](
+  parser: Parser[Out],
+  count: Int,
+  prevResult: Array[Any] = null,
+  currParser: Parser[Out] = null
+) extends Parser[Seq[Out]] {
+
+  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
+    var left   = count
+    var result = if (prevResult eq null) new Array[Any](left) else prevResult
+    val p      = if (currParser eq null) parser else currParser
+    val total  = result.size
+
+    do {
+      state.resolveChain(p, buffer)
+
+      if (state.isRet) {
+        result(total - left) = state.value[Any]
+        left -= 1
+      } else if (state.isCont) {
+        state.cont(new RepeatParser(parser, left, result, currParser))
+        return
+      }
+    } while (left > 0)
+
+    state.ret(result.toSeq)
+  }
+}
+
+final class OrParser[+Out](choice: Parser[Out], tail: Parser[Out], committed: Boolean)
+extends Parser[Out] {
 
   def this(p: Parser[Out], t: Parser[Out]) = this(p, t, false)
 
