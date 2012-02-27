@@ -5,11 +5,11 @@ import org.jboss.netty.buffer.{ChannelBuffers, ChannelBufferIndexFinder, Channel
 
 
 object DecimalIntCodec {
-  private val AsciiZero   = 48.toByte
-  private val MinIntBytes = Int.MinValue.toString.getBytes("US-ASCII")
-  private val MaxStringLength = 11
+  val AsciiZero   = 48.toByte
+  val MinIntBytes = Int.MinValue.toString.getBytes("US-ASCII")
+  val MaxStringLength = 11
 
-  private def encodeToArray(int: Int, bytes: Array[Byte], offset: Int) = {
+  def encodeToArray(int: Int, bytes: Array[Byte], offset: Int) = {
     var i = offset
     var n = int
 
