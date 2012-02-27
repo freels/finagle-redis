@@ -8,27 +8,26 @@ class BacktrackingParser[+Out](inner: Parser[Out], offset: Int) extends Parser[O
   def this(inner: Parser[Out]) = this(inner, 0)
 
   def decodeRaw(buffer: ChannelBuffer): Out = {
-    sys.error("not implementd")
-    // val start = buffer.readerIndex
+    val start = buffer.readerIndex
 
-    // buffer.readerIndex(start + offset)
+    buffer.readerIndex(start + offset)
 
-    // inner.decodeWithState(state, buffer)
-
-    // if (state.isCont) {
-    //   if (state.nextParser == inner && buffer.readerIndex == (start + offset)) {
-    //     buffer.readerIndex(start)
-    //     state.cont(this)
-    //   } else {
-    //     val newOffset = buffer.readerIndex - start
-    //     buffer.readerIndex(start)
-    //     state.cont(new BacktrackingParser(state.nextParser, newOffset))
-    //   }
-    // } else if (state.isFail) {
-    //   buffer.readerIndex(start)
-    // } else if (state.isError) {
-    //   buffer.readerIndex(start)
-    //   state.fail(state.errorMessage)
-    // }
+    try inner.decodeRaw(buffer) catch {
+      case Continue(rest) =>
+        if (rest == inner && buffer.readerIndex == (start + offset)) {
+          buffer.readerIndex(start)
+          throw Continue(this)
+        } else {
+          val newOffset = buffer.readerIndex - start
+          buffer.readerIndex(start)
+          throw Continue(new BacktrackingParser(rest, newOffset))
+        }
+      case f: Fail =>
+        buffer.readerIndex(start)
+        throw f
+      case Error(msg) =>
+        buffer.readerIndex(start)
+        throw new Fail(msg)
+    }
   }
 }

@@ -7,25 +7,15 @@ object BytesParser {
   val ChunkSize = 1024
 }
 
-class ForeachByteParser(
-  bytesLeft: Int,
-  f: Byte => Unit
-) extends Parser[Unit] {
-  def decodeRaw(buffer: ChannelBuffer): Unit = {
-    var i  = 0
-    while (i < bytesLeft) {
-      f(buffer.readByte)
-      i += 1
-    }
-  }
-}
-
 class BytesParser(bytesLeft: Int, data: ChannelBuffer = null) extends Parser[ChannelBuffer] {
 
   import BytesParser._
 
   def decodeRaw(buffer: ChannelBuffer) = {
-    buffer.readSlice(bytesLeft)
+    try buffer.readSlice(bytesLeft) catch {
+      case e: IndexOutOfBoundsException => throw Continue(this)
+    }
+
     // if (data eq null) {
     //   if (buffer.readableBytes >= bytesLeft) {
     //     state.ret(buffer.readSlice(bytesLeft))
@@ -60,7 +50,9 @@ class BytesParser(bytesLeft: Int, data: ChannelBuffer = null) extends Parser[Cha
 
 class SkipBytesParser(toRead: Int) extends Parser[Unit] {
   def decodeRaw(buffer: ChannelBuffer) = {
-    buffer.skipBytes(toRead)
+    try buffer.skipBytes(toRead) catch {
+      case e: IndexOutOfBoundsException => throw Continue(this)
+    }
     ()
     // val readable = buffer.readableBytes
 

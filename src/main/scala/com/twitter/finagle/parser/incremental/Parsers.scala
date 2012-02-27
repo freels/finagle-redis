@@ -173,8 +173,6 @@ object Parsers {
 
   def skipBytes(count: Int) = new SkipBytesParser(count)
 
-  def foreachByte(count: Int)(f: Byte => Unit) = new ForeachByteParser(count, f)
-
 
   // integral primitives
 

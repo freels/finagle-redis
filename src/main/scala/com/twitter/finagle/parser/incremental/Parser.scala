@@ -175,59 +175,53 @@ final class RepeatParser[+Out](
   }
 }
 
-final class OrParser[+Out](choice: Parser[Out], tail: Parser[Out], committed: Boolean)
+final class OrParser[+Out](choice: Parser[Out], next: Parser[Out], committed: Boolean)
 extends Parser[Out] {
 
   def this(p: Parser[Out], t: Parser[Out]) = this(p, t, false)
 
   def decodeRaw(buffer: ChannelBuffer): Out = {
-    sys.error("Not implemented")
-    // val start  = buffer.readerIndex
-    // choice.decodeWithState(state, buffer)
-    // val newCommitted = committed || buffer.readerIndex > start
+    val start = buffer.readerIndex
 
-    // if (state.isCont) {
-    //   state.cont(new OrParser(state.nextParser, tail, newCommitted))
-    // } else if (state.isFail) {
-    //   if (newCommitted) {
-    //     state.error(state.errorMessage)
-    //   } else {
-    //     tail.decodeWithState(state, buffer)
-    //   }
-    // }
+    try choice.decodeRaw(buffer) catch {
+      case f: Fail =>
+        if (committed || buffer.readerIndex > start) throw Error(f.message)
+        next.decodeRaw(buffer)
+      case Continue(rest) =>
+        throw Continue(new OrParser(rest, next, committed || buffer.readerIndex > start))
+    }
   }
 
   override def or[O >: Out](other: Parser[O]): Parser[O] = {
-    new OrParser(choice, tail or other)
+    new OrParser(choice, next or other)
   }
 }
 
 final class NotParser(parser: Parser[_]) extends Parser[Unit] {
 
-  def decodeRaw(buffer: ChannelBuffer) = {
-    sys.error("Not implemented")
-    // val start     = buffer.readerIndex
-    // parser.decodeWithState(state, buffer)
-    // val committed = buffer.readerIndex > start
+  def decodeRaw(buffer: ChannelBuffer): Unit = {
+    val start = buffer.readerIndex
+    var succeeded = false
 
-    // if (state.isCont) {
-    //   if (committed) {
-    //     state.error("Expected "+ parser +" to fail, but already consumed data.")
-    //   } else {
-    //     state.cont(new NotParser(state.nextParser))
-    //   }
-    // } else if (state.isRet) {
-    //   if (committed) {
-    //     state.error("Expected "+ parser +" to fail, but already consumed data.")
-    //   } else {
-    //     state.fail("Expected "+ parser +" to fail.")
-    //   }
-    // } else if (state.isFail) {
-    //   if (committed) {
-    //     state.error(state.errorMessage)
-    //   } else {
-    //     state.ret(())
-    //   }
-    // }
+    try {
+      parser.decodeRaw(buffer)
+      succeeded = true
+    } catch {
+      case Continue(rest) =>
+        if (buffer.readerIndex > start) {
+          throw Error("Expected "+ parser +" to fail, but already consumed data.")
+        } else {
+          throw Continue(new NotParser(rest))
+        }
+      case f: Fail => ()
+    }
+
+    if (succeeded) {
+      if (buffer.readerIndex > start) {
+        throw Error("Expected "+ parser +" to fail, but already consumed data.")
+      } else {
+        throw Fail("Expected "+ parser +" to fail.")
+      }
+    }
   }
 }
