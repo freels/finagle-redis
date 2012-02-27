@@ -12,7 +12,7 @@ object Parsers {
 
   def error(message: String) = new LiftParser(Error(message))
 
-  def success[T](t: T) = new SuccessParser(t)
+  def success[T](t: T) = new ReturnParser(t)
 
   val unit = success(())
 
@@ -137,6 +137,10 @@ object Parsers {
     readTo(AlternateMatcher(first +: second +: rest))
   }
 
+  def bytesBefore(s: String) = {
+    new DelimiterFinderParser(new DelimiterMatcher(s.getBytes("US-ASCII")))
+  }
+
   def readUntil(m: Matcher) = new DelimiterParser(m)
 
   def readUntil(choice: String): Parser[ChannelBuffer] = {
@@ -163,9 +167,13 @@ object Parsers {
 
   // basic reading parsers
 
-  def readBytes(size: Int) = new BytesParser(size)
+  def withRawBuffer[T](f: ChannelBuffer => T) = new RawBufferParser(f)
 
-  def skipBytes(size: Int) = new SkipBytesParser(size)
+  def readBytes(count: Int) = new BytesParser(count)
+
+  def skipBytes(count: Int) = new SkipBytesParser(count)
+
+  def foreachByte(count: Int)(f: Byte => Unit) = new ForeachByteParser(count, f)
 
 
   // integral primitives

@@ -59,13 +59,19 @@ abstract class Parser[+Out] {
 
 }
 
-final class SuccessParser[+Out](rv: Out) extends Parser[Out] {
+final class ReturnParser[+Out](rv: Out) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer) = rv
 }
 
 final class LiftParser[+Out](r: ParseResult[Out]) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer) = r match {
     case Return(ret) => ret
+  }
+}
+
+final class RawBufferParser[+Out](f: ChannelBuffer => Out) extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer) = {
+    f(buffer)
   }
 }
 

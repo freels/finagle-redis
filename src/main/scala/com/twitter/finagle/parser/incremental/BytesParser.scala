@@ -7,6 +7,19 @@ object BytesParser {
   val ChunkSize = 1024
 }
 
+class ForeachByteParser(
+  bytesLeft: Int,
+  f: Byte => Unit
+) extends Parser[Unit] {
+  def decodeRaw(buffer: ChannelBuffer): Unit = {
+    var i  = 0
+    while (i < bytesLeft) {
+      f(buffer.readByte)
+      i += 1
+    }
+  }
+}
+
 class BytesParser(bytesLeft: Int, data: ChannelBuffer = null) extends Parser[ChannelBuffer] {
 
   import BytesParser._
