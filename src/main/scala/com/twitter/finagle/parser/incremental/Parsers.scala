@@ -12,7 +12,7 @@ object Parsers {
 
   def error(message: String) = new LiftParser(Error(message))
 
-  def success[T](t: T) = new LiftParser(Return(t))
+  def success[@specialized T](t: T) = new SuccessParser(t)
 
   val unit = success(())
 
@@ -164,32 +164,37 @@ object Parsers {
   // integral primitives
 
   val readByte = new Parser[Byte] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 1) state.ret(buffer.readByte) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 1) state.ret(buffer.readByte) else state.cont(this)
+      buffer.readByte
     }
   }
 
   val readShort = new Parser[Short] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 2) state.ret(buffer.readShort) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 2) state.ret(buffer.readShort) else state.cont(this)
+      buffer.readShort
     }
   }
 
   val readMedium = new Parser[Int] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 3) state.ret(buffer.readMedium) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 3) state.ret(buffer.readMedium) else state.cont(this)
+      buffer.readMedium
     }
   }
 
   val readInt = new Parser[Int] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 4) state.ret(buffer.readInt) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 4) state.ret(buffer.readInt) else state.cont(this)
+      buffer.readInt
     }
   }
 
   val readLong = new Parser[Long] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 8) state.ret(buffer.readLong) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 8) state.ret(buffer.readLong) else state.cont(this)
+      buffer.readLong
     }
   }
 
@@ -197,26 +202,30 @@ object Parsers {
   // Unsigned integral primitives
 
   val readUnsignedByte = new Parser[Short] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 1) state.ret(buffer.readUnsignedByte) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 1) state.ret(buffer.readUnsignedByte) else state.cont(this)
+      buffer.readUnsignedByte
     }
   }
 
   val readUnsignedShort = new Parser[Int] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 2) state.ret(buffer.readUnsignedShort) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 2) state.ret(buffer.readUnsignedShort) else state.cont(this)
+      buffer.readUnsignedShort
     }
   }
 
   val readUnsignedMedium = new Parser[Int] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 3) state.ret(buffer.readUnsignedMedium) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 3) state.ret(buffer.readUnsignedMedium) else state.cont(this)
+      buffer.readUnsignedMedium
     }
   }
 
   val readUnsignedInt = new Parser[Long] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 4) state.ret(buffer.readUnsignedInt) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 4) state.ret(buffer.readUnsignedInt) else state.cont(this)
+      buffer.readUnsignedInt
     }
   }
 
@@ -224,20 +233,23 @@ object Parsers {
   // non-integral primitives
 
   val readChar = new Parser[Char] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 2) state.ret(buffer.readChar) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 2) state.ret(buffer.readChar) else state.cont(this)
+      buffer.readChar
     }
   }
 
   val readDouble = new Parser[Double] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 8) state.ret(buffer.readDouble) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 8) state.ret(buffer.readDouble) else state.cont(this)
+      buffer.readDouble
     }
   }
 
   val readFloat = new Parser[Float] {
-    def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-      if (buffer.readableBytes >= 4) state.ret(buffer.readFloat) else state.cont(this)
+    def decodeRaw(buffer: ChannelBuffer) = {
+      //if (buffer.readableBytes >= 4) state.ret(buffer.readFloat) else state.cont(this)
+      buffer.readFloat
     }
   }
 }

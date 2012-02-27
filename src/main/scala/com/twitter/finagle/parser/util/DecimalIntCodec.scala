@@ -51,50 +51,36 @@ object DecimalIntCodec {
     dest.writeBytes(encodeArray(int))
   }
 
-  def decode(buf: ChannelBuffer): Int = {
+  @inline def decode(buf: ChannelBuffer): Int = {
     decode(buf, buf.readableBytes)
   }
 
-  def decode(buf: ChannelBuffer, numBytes: Int): Int = {
-    val digits     = numBytes - 1 // assume a prefix here. we'll add it back later.
-    var rv         = 0
-    var isNegative = 1
+  @inline def decode(buf: ChannelBuffer, numBytes: Int): Int = {
+    var result = 0
+    var sign   = 1
 
-    var c = buf.readByte
+    val c = buf.readByte
 
     if (c == '-') {
-      isNegative = -1
+      sign = -1
     } else if (c != '+') {
-      rv += digitToDecimal(c, digits)
+      result *= 10
+      result += parseByte(c)
     }
 
     var i = 1
-    while (i <= digits) {
-      rv += digitToDecimal(buf.readByte, digits - i)
+    while (i < numBytes) {
+      result *= 10
+      result += parseByte(buf.readByte)
       i += 1
     }
 
-    rv * isNegative
+    result * sign
   }
 
-  // helpers
-
-  @inline def digitToDecimal(d: Byte, exp: Int) = {
-    val n = d - AsciiZero
-    if (n < 0 || n > 9) throw new ParseException("Invalid decimal int")
-
-    pow(10, exp) * n
-  }
-
-  @inline def pow(x: Int, p: Int) = {
-    var rv = 1
-    var j  = 0
-
-    while (j < p) {
-      rv = rv * x
-      j  = j + 1
-    }
-
-    rv
+  @inline def parseByte(b: Byte) = {
+    val n = b - AsciiZero
+    if (n < 0 || n > 9) throw new ParseException("Invalid integer char")
+    n
   }
 }

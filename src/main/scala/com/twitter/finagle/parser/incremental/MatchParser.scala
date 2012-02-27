@@ -5,11 +5,11 @@ import com.twitter.finagle.parser.util.Matcher
 
 
 class MatchParser(matcher: Matcher) extends Parser[Int] {
-  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
+  def decodeRaw(buffer: ChannelBuffer) = {
     matcher.bytesMatching(buffer, buffer.readerIndex) match {
-      case -2        => state.fail("Match failed.")
-      case -1        => state.cont(this)
-      case matchSize => state.ret(matchSize)
+      case -2        => sys.error("Match failed.")
+      case -1        => sys.error("Match inconclusive.")
+      case matchSize => matchSize
     }
   }
 }

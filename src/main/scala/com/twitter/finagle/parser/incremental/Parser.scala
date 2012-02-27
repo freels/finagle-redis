@@ -5,26 +5,12 @@ import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.parser.util.ChainableTuple
 
 object ParseState {
-  trait StateProcessor {
-    def processFlatMap[T](s: ParseState, b: ChannelBuffer, f: T => Parser[Any]) {}
-    def processThen[T](s: ParseState, b: ChannelBuffer, n: Parser[Any]) {}
-  }
-
+  trait StateProcessor
   final object EmptyState extends StateProcessor
   final object FailState  extends StateProcessor
   final object ErrorState extends StateProcessor
-
-  final object ContState extends StateProcessor {
-    override def processFlatMap[T](s: ParseState, b: ChannelBuffer, f: T => Parser[Any]) {
-      s.cont(s.nextParser flatMap f)
-    }
-  }
-
-  final object RetState extends StateProcessor {
-    override def processFlatMap[T](s: ParseState, b: ChannelBuffer, f: T => Parser[Any]) {
-      f(s.value).decodeWithState(s, b)
-    }
-  }
+  final object ContState extends StateProcessor
+  final object RetState extends StateProcessor
 }
 
 import ParseState._
@@ -46,10 +32,6 @@ final class ParseState {
   @inline def isFail  = _type == FailState
   @inline def isError = _type == ErrorState
 
-  @inline def processFlatMap[T](b: ChannelBuffer, f: T => Parser[_]) {
-    _type.processFlatMap(this, b, f)
-  }
-
   def value[T]      = _value.asInstanceOf[T]
   def nextParser[T] = _parser.asInstanceOf[Parser[T]]
   def errorMessage  = _msg
@@ -66,20 +48,18 @@ final class ParseState {
 abstract class Parser[+Out] {
   import Parsers._
 
-  def decode(buffer: ChannelBuffer) = {
-    val state = new ParseState
-    decodeWithState(state, buffer)
-    state.toResult[Out]
+  def decode(buffer: ChannelBuffer): ParseResult[Out] = {
+    Return(decodeRaw(buffer))
   }
 
-  def decodeWithState(state: ParseState, buffer: ChannelBuffer)
+  def decodeRaw(buffer: ChannelBuffer): Out
 
 
   // basic composition
 
   def then[T](rhs: Parser[T]): Parser[T] = new ThenParser(this, rhs)
 
-  def then[T](rv: T): Parser[T] = new ThenParser(this, success(rv))
+  def then[@specialized T](rv: T): Parser[T] = new ThenParser(this, success(rv))
 
   def through[T](rhs: Parser[T]): Parser[Out] = this flatMap { rhs then success(_) }
 
@@ -91,7 +71,7 @@ abstract class Parser[+Out] {
 
   def flatMap[T](f: Out => Parser[T]): Parser[T] = new FlatMapParser(this, f)
 
-  def map[T](f: Out => T): Parser[T] = this flatMap { o => success(f(o)) }
+  def map[@specialized T](f: Out => T): Parser[T] = this flatMap { o => success(f(o)) }
 
 
   // yay operators...this may be a bad idea.
@@ -120,42 +100,34 @@ abstract class Parser[+Out] {
 
 }
 
+final class SuccessParser[@specialized +Out](rv: Out) extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer) = rv
+}
 
-final class LiftParser[+Out](r: ParseResult[Out]) extends Parser[Out] {
-  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-    r match {
-      case Continue(next) => state.cont(next)
-      case Return(ret)    => state.ret(ret)
-      case Fail(msg)      => state.fail(msg)
-      case Error(msg)     => state.error(msg)
+final class LiftParser[@specialized +Out](r: ParseResult[Out]) extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer) = r match {
+    case Return(ret) => ret
+  }
+}
+
+final class FlatMapParser[@specialized T, @specialized +Out](parser: Parser[T], f: T => Parser[Out])
+extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    val next = try f(parser.decodeRaw(buffer)) catch {
+      case e => println(e.getMessage); throw e
+    }
+
+    try next.decodeRaw(buffer) catch {
+      case e => println(e.getMessage); throw e
     }
   }
 }
 
-final class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
+final class ThenParser[@specialized +Out](parser: Parser[_], next: Parser[Out])
 extends Parser[Out] {
-  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-    parser.decodeWithState(state, buffer)
-
-    state.processFlatMap(buffer, f)
-    // if (state.isRet) {
-    //   f(state.value).decodeWithState(state, buffer)
-    // } else if (state.isCont) {
-    //   state.cont(state.nextParser flatMap f)
-    // }
-  }
-}
-
-final class ThenParser[+Out](parser: Parser[_], next: Parser[Out])
-extends Parser[Out] {
-  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-    parser.decodeWithState(state, buffer)
-
-    if (state.isRet) {
-      next.decodeWithState(state, buffer)
-    } else if (state.isCont) {
-      state.cont(state.nextParser then next)
-    }
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    parser.decodeRaw(buffer)
+    next.decodeRaw(buffer)
   }
 
   override def then[T](other: Parser[T]): Parser[T] = {
@@ -171,25 +143,35 @@ final class RepeatParser[+Out](
   currParser: Parser[Out] = null
 ) extends Parser[Seq[Out]] {
 
-  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-    var left   = count
-    var result = if (prevResult eq null) new Array[Any](left) else prevResult
-    val p      = if (currParser eq null) parser else currParser
-    val total  = result.size
+  def decodeRaw(buffer: ChannelBuffer): Seq[Out] = {
+    var result = new Array[Any](count)
 
-    do {
-      p.decodeWithState(state, buffer)
+    var i = 0
+    while (i < count) {
+      result(i) = parser.decodeRaw(buffer)
+      i += 1
+    }
 
-      if (state.isRet) {
-        result(total - left) = state.value[Any]
-        left -= 1
-      } else if (state.isCont) {
-        state.cont(new RepeatParser(parser, left, result, currParser))
-        return
-      }
-    } while (left > 0)
+    result.toSeq.asInstanceOf[Seq[Out]]
 
-    state.ret(result.toSeq)
+    // var left   = count
+    // var result = if (prevResult eq null) new Array[Any](left) else prevResult
+    // val p      = if (currParser eq null) parser else currParser
+    // val total  = result.size
+
+    // do {
+    //   p.decodeWithState(state, buffer)
+
+    //   if (state.isRet) {
+    //     result(total - left) = state.value[Any]
+    //     left -= 1
+    //   } else if (state.isCont) {
+    //     state.cont(new RepeatParser(parser, left, result, currParser))
+    //     return
+    //   }
+    // } while (left > 0)
+
+    // state.ret(result.toSeq)
   }
 }
 
@@ -198,20 +180,21 @@ extends Parser[Out] {
 
   def this(p: Parser[Out], t: Parser[Out]) = this(p, t, false)
 
-  def decodeWithState(state: ParseState, buffer: ChannelBuffer) {
-    val start  = buffer.readerIndex
-    choice.decodeWithState(state, buffer)
-    val newCommitted = committed || buffer.readerIndex > start
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    sys.error("Not implemented")
+    // val start  = buffer.readerIndex
+    // choice.decodeWithState(state, buffer)
+    // val newCommitted = committed || buffer.readerIndex > start
 
-    if (state.isCont) {
-      state.cont(new OrParser(state.nextParser, tail, newCommitted))
-    } else if (state.isFail) {
-      if (newCommitted) {
-        state.error(state.errorMessage)
-      } else {
-        tail.decodeWithState(state, buffer)
-      }
-    }
+    // if (state.isCont) {
+    //   state.cont(new OrParser(state.nextParser, tail, newCommitted))
+    // } else if (state.isFail) {
+    //   if (newCommitted) {
+    //     state.error(state.errorMessage)
+    //   } else {
+    //     tail.decodeWithState(state, buffer)
+    //   }
+    // }
   }
 
   override def or[O >: Out](other: Parser[O]): Parser[O] = {
@@ -221,29 +204,30 @@ extends Parser[Out] {
 
 final class NotParser(parser: Parser[_]) extends Parser[Unit] {
 
-  def decodeWithState(state: ParseState, buffer: ChannelBuffer) = {
-    val start     = buffer.readerIndex
-    parser.decodeWithState(state, buffer)
-    val committed = buffer.readerIndex > start
+  def decodeRaw(buffer: ChannelBuffer) = {
+    sys.error("Not implemented")
+    // val start     = buffer.readerIndex
+    // parser.decodeWithState(state, buffer)
+    // val committed = buffer.readerIndex > start
 
-    if (state.isCont) {
-      if (committed) {
-        state.error("Expected "+ parser +" to fail, but already consumed data.")
-      } else {
-        state.cont(new NotParser(state.nextParser))
-      }
-    } else if (state.isRet) {
-      if (committed) {
-        state.error("Expected "+ parser +" to fail, but already consumed data.")
-      } else {
-        state.fail("Expected "+ parser +" to fail.")
-      }
-    } else if (state.isFail) {
-      if (committed) {
-        state.error(state.errorMessage)
-      } else {
-        state.ret(())
-      }
-    }
+    // if (state.isCont) {
+    //   if (committed) {
+    //     state.error("Expected "+ parser +" to fail, but already consumed data.")
+    //   } else {
+    //     state.cont(new NotParser(state.nextParser))
+    //   }
+    // } else if (state.isRet) {
+    //   if (committed) {
+    //     state.error("Expected "+ parser +" to fail, but already consumed data.")
+    //   } else {
+    //     state.fail("Expected "+ parser +" to fail.")
+    //   }
+    // } else if (state.isFail) {
+    //   if (committed) {
+    //     state.error(state.errorMessage)
+    //   } else {
+    //     state.ret(())
+    //   }
+    // }
   }
 }
