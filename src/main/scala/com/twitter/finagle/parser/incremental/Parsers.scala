@@ -82,10 +82,12 @@ object Parsers {
 
   implicit def accept(choice: String): Parser[ChannelBuffer] = {
     accept(new DelimiterMatcher(choice))
+    // val m = new MatchParser(new DelimiterMatcher(choice))
+    // m then skipBytes(choice.size) then success(choice)
   }
 
-  def accept(choices: String*): Parser[ChannelBuffer] = {
-    accept(AlternateMatcher(choices))
+  def accept(first: String, second: String, rest: String*): Parser[ChannelBuffer] = {
+    accept(AlternateMatcher(first +: second +: rest))
   }
 
   def guard(m: Matcher) = new MatchParser(m)
@@ -94,8 +96,8 @@ object Parsers {
     guard(new DelimiterMatcher(choice))
   }
 
-  def guard(choices: String*): Parser[Int] = {
-    guard(AlternateMatcher(choices))
+  def guard(first: String, second: String, rest: String*): Parser[Int] = {
+    guard(AlternateMatcher(first +: second +: rest))
   }
 
   def not(m: Matcher) = guard(m.negate) then unit
@@ -104,8 +106,8 @@ object Parsers {
     not(new DelimiterMatcher(choice))
   }
 
-  def not(choices: String*): Parser[Unit] = {
-    not(AlternateMatcher(choices))
+  def not(first: String, second: String, rest: String*): Parser[Unit] = {
+    not(AlternateMatcher(first +: second +: rest))
   }
 
 
@@ -126,8 +128,8 @@ object Parsers {
     readTo(new DelimiterMatcher(choice))
   }
 
-  def readTo(choices: String*): Parser[ChannelBuffer] = {
-    readTo(AlternateMatcher(choices))
+  def readTo(first: String, second: String, rest: String*): Parser[ChannelBuffer] = {
+    readTo(AlternateMatcher(first +: second +: rest))
   }
 
   def readUntil(m: Matcher) = new DelimiterParser(m)
@@ -136,8 +138,8 @@ object Parsers {
     readUntil(new DelimiterMatcher(choice))
   }
 
-  def readUntil(choices: String*): Parser[ChannelBuffer] = {
-    readUntil(AlternateMatcher(choices))
+  def readUntil(first: String, second: String, rest: String*): Parser[ChannelBuffer] = {
+    readUntil(AlternateMatcher(first +: second +: rest))
   }
 
   def readWhile(m: Matcher) = readUntil(new NotMatcher(m))
@@ -146,8 +148,8 @@ object Parsers {
     readWhile(new DelimiterMatcher(choice))
   }
 
-  def readWhile(choices: String*): Parser[ChannelBuffer] = {
-    readWhile(AlternateMatcher(choices))
+  def readWhile(first: String, second: String, rest: String*): Parser[ChannelBuffer] = {
+    readWhile(AlternateMatcher(first +: second +: rest))
   }
 
   val readLine = readTo(Matchers.CRLF)
