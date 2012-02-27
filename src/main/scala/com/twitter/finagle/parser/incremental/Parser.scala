@@ -4,47 +4,6 @@ import scala.annotation.tailrec
 import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.parser.util.ChainableTuple
 
-object ParseState {
-  trait StateProcessor
-  final object EmptyState extends StateProcessor
-  final object FailState  extends StateProcessor
-  final object ErrorState extends StateProcessor
-  final object ContState extends StateProcessor
-  final object RetState extends StateProcessor
-}
-
-import ParseState._
-
-final class ParseState {
-
-  var _type: StateProcessor = EmptyState
-  var _parser: Parser[_]    = _
-  var _value: Any           = _
-  var _msg: String          = _
-
-  @inline def cont(p: Parser[_]) { _type = ContState;  _parser = p }
-  @inline def ret(r: Any)        { _type = RetState;   _value  = r }
-  @inline def fail(msg: String)  { _type = FailState;  _msg    = msg }
-  @inline def error(msg: String) { _type = ErrorState; _msg    = msg }
-
-  @inline def isCont  = _type == ContState
-  @inline def isRet   = _type == RetState
-  @inline def isFail  = _type == FailState
-  @inline def isError = _type == ErrorState
-
-  def value[T]      = _value.asInstanceOf[T]
-  def nextParser[T] = _parser.asInstanceOf[Parser[T]]
-  def errorMessage  = _msg
-
-  def toResult[T]: ParseResult[T] = _type match {
-    case RetState   => Return(_value.asInstanceOf[T])
-    case ContState  => Continue(_parser.asInstanceOf[Parser[T]])
-    case FailState  => Fail(_msg)
-    case ErrorState => Error(_msg)
-    case EmptyState => sys.error("empty state")
-  }
-}
-
 abstract class Parser[+Out] {
   import Parsers._
 
@@ -101,7 +60,7 @@ abstract class Parser[+Out] {
 }
 
 final class SuccessParser[@specialized +Out](rv: Out) extends Parser[Out] {
-  def decodeRaw(buffer: ChannelBuffer) = rv
+  @specialized def decodeRaw(buffer: ChannelBuffer) = rv
 }
 
 final class LiftParser[@specialized +Out](r: ParseResult[Out]) extends Parser[Out] {
@@ -112,7 +71,7 @@ final class LiftParser[@specialized +Out](r: ParseResult[Out]) extends Parser[Ou
 
 final class FlatMapParser[@specialized T, @specialized +Out](parser: Parser[T], f: T => Parser[Out])
 extends Parser[Out] {
-  def decodeRaw(buffer: ChannelBuffer): Out = {
+  @specialized def decodeRaw(buffer: ChannelBuffer): Out = {
     val next = try f(parser.decodeRaw(buffer)) catch {
       case e => println(e.getMessage); throw e
     }
@@ -125,12 +84,12 @@ extends Parser[Out] {
 
 final class ThenParser[@specialized +Out](parser: Parser[_], next: Parser[Out])
 extends Parser[Out] {
-  def decodeRaw(buffer: ChannelBuffer): Out = {
+  @specialized def decodeRaw(buffer: ChannelBuffer): Out = {
     parser.decodeRaw(buffer)
     next.decodeRaw(buffer)
   }
 
-  override def then[T](other: Parser[T]): Parser[T] = {
+  @specialized override def then[T](other: Parser[T]): Parser[T] = {
     new ThenParser(parser, next then other)
   }
 }
