@@ -2,12 +2,16 @@ package com.twitter.finagle.parser.incremental
 
 // states: continue (wait), return, fail (recoverable), error
 
-sealed abstract class ParseResult[+Out]
+sealed trait ParseResult[+Out]
 
-case class Continue[+Out](next: Parser[Out]) extends ParseResult[Out]
+abstract class BlankThrowable extends Throwable {
+  override def fillInStackTrace(): Throwable = null
+}
+
+case class Continue[+Out](next: Parser[Out]) extends BlankThrowable with ParseResult[Out]
 
 case class Return[@specialized +Out](ret: Out) extends ParseResult[Out]
 
-case class Fail(message: String) extends ParseResult[Nothing]
+case class Fail(message: String) extends BlankThrowable with ParseResult[Nothing]
 
-case class Error(message: String) extends ParseResult[Nothing]
+case class Error(message: String) extends BlankThrowable with ParseResult[Nothing]

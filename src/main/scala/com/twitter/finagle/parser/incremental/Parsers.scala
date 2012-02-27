@@ -8,9 +8,9 @@ object Parsers {
 
   // lifting values
 
-  def fail(message: String) = new LiftParser(Fail(message))
+  def fail(message: String) = new FailParser(message)
 
-  def error(message: String) = new LiftParser(Error(message))
+  def error(message: String) = new ErrorParser(message)
 
   def success[T](t: T) = new ReturnParser(t)
 

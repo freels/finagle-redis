@@ -8,7 +8,11 @@ abstract class Parser[+Out] {
   import Parsers._
 
   def decode(buffer: ChannelBuffer): ParseResult[Out] = {
-    Return(decodeRaw(buffer))
+    try Return(decodeRaw(buffer)) catch {
+      case c: Continue[_] => c.asInstanceOf[Continue[Out]]
+      case f: Fail => f
+      case e: Error => e
+    }
   }
 
   def decodeRaw(buffer: ChannelBuffer): Out
@@ -63,44 +67,47 @@ final class ReturnParser[+Out](rv: Out) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer) = rv
 }
 
-final class LiftParser[+Out](r: ParseResult[Out]) extends Parser[Out] {
-  def decodeRaw(buffer: ChannelBuffer) = r match {
-    case Return(ret) => ret
-  }
+final class FailParser(message: String) extends Parser[Nothing] {
+  def decodeRaw(buffer: ChannelBuffer) = throw Fail(message)
+}
+
+final class ErrorParser(message: String) extends Parser[Nothing] {
+  def decodeRaw(buffer: ChannelBuffer) = throw Error(message)
 }
 
 final class RawBufferParser[+Out](f: ChannelBuffer => Out) extends Parser[Out] {
-  def decodeRaw(buffer: ChannelBuffer) = {
-    f(buffer)
-  }
+  def decodeRaw(buffer: ChannelBuffer) = f(buffer)
 }
 
-final class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
-extends Parser[Out] {
+final class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out]) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
     val next = try f(parser.decodeRaw(buffer)) catch {
-      case e => println(e.getMessage); throw e
+      case Continue(rest) =>
+        throw Continue(new FlatMapParser(rest.asInstanceOf[Parser[T]], f))
     }
 
-    try next.decodeRaw(buffer) catch {
-      case e => println(e.getMessage); throw e
-    }
+    next.decodeRaw(buffer)
   }
 }
 
-final class MapParser[T, +Out](parser: Parser[T], f: T => Out)
-extends Parser[Out] {
+final class MapParser[T, +Out](parser: Parser[T], f: T => Out) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
-    val rv = parser.decodeRaw(buffer)
+    val rv = try parser.decodeRaw(buffer) catch {
+      case Continue(rest) =>
+        throw Continue(new MapParser(rest.asInstanceOf[Parser[T]], f))
+    }
+
     f(rv)
   }
 }
 
 
-final class ThenParser[+Out](parser: Parser[_], next: Parser[Out])
-extends Parser[Out] {
+final class ThenParser[+Out](parser: Parser[_], next: Parser[Out]) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
-    parser.decodeRaw(buffer)
+    try parser.decodeRaw(buffer) catch {
+      case Continue(rest) => throw Continue(new ThenParser(rest, next))
+    }
+
     next.decodeRaw(buffer)
   }
 
@@ -109,52 +116,62 @@ extends Parser[Out] {
   }
 }
 
-final class ThroughParser[+Out](a: Parser[Out], b: Parser[_])
-extends Parser[Out] {
+final class ThroughParser[+Out](parser: Parser[Out], next: Parser[_]) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
-    val rv = a.decodeRaw(buffer)
-    b.decodeRaw(buffer)
+    val rv = try parser.decodeRaw(buffer) catch {
+      case Continue(rest) => throw Continue(new ThroughParser(rest, next))
+    }
+
+    try next.decodeRaw(buffer) catch {
+      case Continue(rest) => throw Continue(new ConstParser(parser, rv))
+    }
+
     rv
   }
 }
 
+final class ConstParser[+Out](parser: Parser[Out], value: Out) extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    try parser.decodeRaw(buffer) catch {
+      case Continue(rest) => throw Continue(new ConstParser(parser, value))
+    }
+
+    value
+  }
+}
+
+
 
 final class RepeatParser[+Out](
   parser: Parser[Out],
-  count: Int,
+  total: Int,
   prevResult: Array[Any] = null,
+  prevI: Int = 0,
   currParser: Parser[Out] = null
 ) extends Parser[Seq[Out]] {
 
   def decodeRaw(buffer: ChannelBuffer): Seq[Out] = {
-    var result = new Array[Any](count)
+    var i = prevI
+    val result = if (prevResult ne null) prevResult else new Array[Any](total)
 
-    var i = 0
-    while (i < count) {
-      result(i) = parser.decodeRaw(buffer)
-      i += 1
+    try {
+      if (currParser ne null) {
+        val item = currParser.decodeRaw(buffer)
+        result(i) = item
+        i += 1
+      }
+
+      while (i < total) {
+        val item = parser.decodeRaw(buffer)
+        result(i) = item
+        i += 1
+      }
+    } catch {
+      case Continue(rest) => throw Continue(new RepeatParser(parser, total, result, i, rest))
+        case e => println(e); throw e
     }
 
     result.toSeq.asInstanceOf[Seq[Out]]
-
-    // var left   = count
-    // var result = if (prevResult eq null) new Array[Any](left) else prevResult
-    // val p      = if (currParser eq null) parser else currParser
-    // val total  = result.size
-
-    // do {
-    //   p.decodeWithState(state, buffer)
-
-    //   if (state.isRet) {
-    //     result(total - left) = state.value[Any]
-    //     left -= 1
-    //   } else if (state.isCont) {
-    //     state.cont(new RepeatParser(parser, left, result, currParser))
-    //     return
-    //   }
-    // } while (left > 0)
-
-    // state.ret(result.toSeq)
   }
 }
 
