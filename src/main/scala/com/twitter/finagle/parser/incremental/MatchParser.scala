@@ -6,10 +6,16 @@ import com.twitter.finagle.parser.util.Matcher
 
 class MatchParser(matcher: Matcher) extends Parser[Int] {
   def decodeRaw(buffer: ChannelBuffer) = {
-    matcher.bytesMatching(buffer, buffer.readerIndex) match {
-      case -2        => sys.error("Match failed.")
-      case -1        => sys.error("Match inconclusive.")
-      case matchSize => matchSize
+    val size = matcher.bytesMatching(buffer, buffer.readerIndex)
+
+    if (size < 0) {
+      if (size == -1) {
+        sys.error("Match inconclusive.")
+      } else {
+        sys.error("Match failed.")
+      }
+    } else {
+      size
     }
   }
 }
