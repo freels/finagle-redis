@@ -18,9 +18,9 @@ abstract class Parser[+Out] {
 
   def then[T](rhs: Parser[T]): Parser[T] = new ThenParser(this, rhs)
 
-  def then[@specialized T](rv: T): Parser[T] = new ThenParser(this, success(rv))
+  def then[T](rv: T): Parser[T] = new ThenParser(this, success(rv))
 
-  def through[T](rhs: Parser[T]): Parser[Out] = this flatMap { rhs then success(_) }
+  def through[T](rhs: Parser[T]): Parser[Out] = new ThroughParser(this, rhs)
 
   def and[T, C <: ChainableTuple](rhs: Parser[T])(implicit chn: Out => C): Parser[C#Next[T]] = {
     for (tup <- this; next <- rhs) yield chn(tup).append(next)
@@ -30,7 +30,7 @@ abstract class Parser[+Out] {
 
   def flatMap[T](f: Out => Parser[T]): Parser[T] = new FlatMapParser(this, f)
 
-  def map[@specialized T](f: Out => T): Parser[T] = this flatMap { o => success(f(o)) }
+  def map[T](f: Out => T): Parser[T] = new MapParser(this, f)
 
 
   // yay operators...this may be a bad idea.
@@ -59,19 +59,19 @@ abstract class Parser[+Out] {
 
 }
 
-final class SuccessParser[@specialized +Out](rv: Out) extends Parser[Out] {
-  @specialized def decodeRaw(buffer: ChannelBuffer) = rv
+final class SuccessParser[+Out](rv: Out) extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer) = rv
 }
 
-final class LiftParser[@specialized +Out](r: ParseResult[Out]) extends Parser[Out] {
+final class LiftParser[+Out](r: ParseResult[Out]) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer) = r match {
     case Return(ret) => ret
   }
 }
 
-final class FlatMapParser[@specialized T, @specialized +Out](parser: Parser[T], f: T => Parser[Out])
+final class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out])
 extends Parser[Out] {
-  @specialized def decodeRaw(buffer: ChannelBuffer): Out = {
+  def decodeRaw(buffer: ChannelBuffer): Out = {
     val next = try f(parser.decodeRaw(buffer)) catch {
       case e => println(e.getMessage); throw e
     }
@@ -82,15 +82,33 @@ extends Parser[Out] {
   }
 }
 
-final class ThenParser[@specialized +Out](parser: Parser[_], next: Parser[Out])
+final class MapParser[T, +Out](parser: Parser[T], f: T => Out)
 extends Parser[Out] {
-  @specialized def decodeRaw(buffer: ChannelBuffer): Out = {
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    val rv = parser.decodeRaw(buffer)
+    f(rv)
+  }
+}
+
+
+final class ThenParser[+Out](parser: Parser[_], next: Parser[Out])
+extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer): Out = {
     parser.decodeRaw(buffer)
     next.decodeRaw(buffer)
   }
 
-  @specialized override def then[T](other: Parser[T]): Parser[T] = {
+  override def then[T](other: Parser[T]): Parser[T] = {
     new ThenParser(parser, next then other)
+  }
+}
+
+final class ThroughParser[+Out](a: Parser[Out], b: Parser[_])
+extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    val rv = a.decodeRaw(buffer)
+    b.decodeRaw(buffer)
+    rv
   }
 }
 

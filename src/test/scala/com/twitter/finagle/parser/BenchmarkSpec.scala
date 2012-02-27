@@ -15,14 +15,12 @@ object Redis {
   val skipCRLF = skipBytes(2)
 
   val readBulk = readInt flatMap { length =>
-    readBytes(length) flatMap { bytes =>
-      skipCRLF then success(bytes)
-    }
+    readBytes(length) through skipCRLF
   }
 
-  val readSingleBulk = accept("$") then readBulk
+  val readSingleBulk = acceptString("$") then readBulk
 
-  val readMultiBulk = accept("*") then {
+  val readMultiBulk = acceptString("*") then {
     readInt flatMap { count =>
       repN(count, readSingleBulk)
     }

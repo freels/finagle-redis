@@ -12,7 +12,7 @@ object Parsers {
 
   def error(message: String) = new LiftParser(Error(message))
 
-  def success[@specialized T](t: T) = new SuccessParser(t)
+  def success[T](t: T) = new SuccessParser(t)
 
   val unit = success(())
 
@@ -80,7 +80,12 @@ object Parsers {
 
   def accept(m: Matcher) = new MatchParser(m) flatMap { readBytes(_) }
 
-  implicit def accept(choice: String): Parser[ChannelBuffer] = {
+  implicit def acceptString(choice: String) = {
+    val bytes = choice.getBytes("US-ASCII")
+    new MatchParser(new DelimiterMatcher(bytes)) then skipBytes(bytes.size)
+  }
+
+  def accept(choice: String): Parser[ChannelBuffer] = {
     accept(new DelimiterMatcher(choice))
     // val m = new MatchParser(new DelimiterMatcher(choice))
     // m then skipBytes(choice.size) then success(choice)
