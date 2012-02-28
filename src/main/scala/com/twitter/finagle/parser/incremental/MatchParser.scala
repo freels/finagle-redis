@@ -12,7 +12,7 @@ class MatchParser(matcher: Matcher) extends Parser[Int] {
       if (size == -1) {
         throw Continue(this)
       } else {
-        throw Fail("Matcher %s failed." format matcher)
+        throw Fail(() => "Matcher %s failed." format matcher)
       }
     }
 

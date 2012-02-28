@@ -1,10 +1,21 @@
 package com.twitter.finagle.parser.incremental
 
 import scala.annotation.tailrec
-import scala.collection.mutable.ListBuffer
+import scala.collection.mutable.{ListBuffer, WrappedArray}
 import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.parser.util.ChainableTuple
 
+/**
+ * The base class for all incremental ChannelBuffer parsers.
+ *
+ * Incremental parsers are designed to process Netty ChannelBuffers that may contain only partial messages. The API is inspired by existing parser combinator libraries like Haskell's Parsec and Scala's built in parser combinators. As an example, here is a full parser of Redis's reply protocol:
+ *
+ * {{{
+ *
+ * }}}
+ *
+ *
+ */
 abstract class Parser[+Out] {
   import Parsers._
 
@@ -21,11 +32,15 @@ abstract class Parser[+Out] {
 
   // basic composition
 
-  def then[T](rhs: Parser[T]): Parser[T] = new ThenParser(this, rhs)
+  def flatMap[T](f: Out => Parser[T]): Parser[T] = new FlatMap1Parser(this, f)
 
-  def then[T](rv: T): Parser[T] = new ThenParser(this, success(rv))
+  def map[T](f: Out => T): Parser[T] = this flatMap { rv => success(f(rv)) }
 
-  def through[T](rhs: Parser[T]): Parser[Out] = new ThroughParser(this, rhs)
+  def then[T](rhs: Parser[T]): Parser[T] = this flatMap { _ => rhs }
+
+  def then[T](rv: T): Parser[T] = this then success(rv)
+
+  def thenSkip(rhs: Parser[_]): Parser[Out] = this flatMap { rv => new ConstParser(rhs, rv) }
 
   def and[T, C <: ChainableTuple](rhs: Parser[T])(implicit chn: Out => C): Parser[C#Next[T]] = {
     for (tup <- this; next <- rhs) yield chn(tup).append(next)
@@ -33,9 +48,6 @@ abstract class Parser[+Out] {
 
   def or[O >: Out](rhs: Parser[O]): Parser[O] = new OrParser(this, rhs)
 
-  def flatMap[T](f: Out => Parser[T]): Parser[T] = new FlatMapParser(this, f)
-
-  def map[T](f: Out => T): Parser[T] = new MapParser(this, f)
 
 
   // yay operators...this may be a bad idea.
@@ -46,7 +58,7 @@ abstract class Parser[+Out] {
 
   def ? = opt(this)
 
-  def <<[T](rhs: Parser[T]) = this through rhs
+  def <<[T](rhs: Parser[T]) = this thenSkip rhs
 
   def >>[T](rhs: Parser[T]) = this then rhs
 
@@ -68,12 +80,12 @@ final class ReturnParser[+Out](rv: Out) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer) = rv
 }
 
-final class FailParser(message: String) extends Parser[Nothing] {
-  def decodeRaw(buffer: ChannelBuffer) = throw Fail(message)
+final class FailParser(message: => String) extends Parser[Nothing] {
+  def decodeRaw(buffer: ChannelBuffer) = throw Fail(() => message)
 }
 
-final class ErrorParser(message: String) extends Parser[Nothing] {
-  def decodeRaw(buffer: ChannelBuffer) = throw Error(message)
+final class ErrorParser(message: => String) extends Parser[Nothing] {
+  def decodeRaw(buffer: ChannelBuffer) = throw Error(() => message)
 }
 
 final class RawBufferParser[+Out](f: ChannelBuffer => Out) extends Parser[Out] {
@@ -87,64 +99,199 @@ final class RawBufferParser[+Out](f: ChannelBuffer => Out) extends Parser[Out] {
   }
 }
 
-final class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out]) extends Parser[Out] {
+final class FlatMap1Parser[A, +Out](parser: Parser[A], f1: A => Parser[Out]) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
-    val next = try f(parser.decodeRaw(buffer)) catch {
+    val next1 = try f1(parser.decodeRaw(buffer)) catch {
       case Continue(rest) =>
-        throw Continue(new FlatMapParser(rest.asInstanceOf[Parser[T]], f))
+        throw Continue(new FlatMap1Parser(rest.asInstanceOf[Parser[A]], f1))
     }
 
-    next.decodeRaw(buffer)
+    next1.decodeRaw(buffer)
   }
+
+  override def flatMap[T](f2: Out => Parser[T]): Parser[T] = new FlatMap2Parser(parser, f1, f2)
 }
 
-final class MapParser[T, +Out](parser: Parser[T], f: T => Out) extends Parser[Out] {
+final class FlatMap2Parser[A, B, +Out](
+  parser: Parser[A],
+  f1: A => Parser[B],
+  f2: B => Parser[Out]
+) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
-    val rv = try parser.decodeRaw(buffer) catch {
+    val next1 = try f1(parser.decodeRaw(buffer)) catch {
       case Continue(rest) =>
-        throw Continue(new MapParser(rest.asInstanceOf[Parser[T]], f))
+        throw Continue(new FlatMap2Parser(rest.asInstanceOf[Parser[A]], f1, f2))
     }
 
-    f(rv)
+    val next2 = try f2(next1.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap1Parser(rest.asInstanceOf[Parser[B]], f2))
+    }
+
+    next2.decodeRaw(buffer)
   }
+
+  override def flatMap[T](f3: Out => Parser[T]): Parser[T] = new FlatMap3Parser(parser, f1, f2, f3)
 }
 
-
-final class ThenParser[+Out](parser: Parser[_], next: Parser[Out]) extends Parser[Out] {
+final class FlatMap3Parser[A, B, C, +Out](
+  parser: Parser[A],
+  f1: A => Parser[B],
+  f2: B => Parser[C],
+  f3: C => Parser[Out]
+) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
-    try parser.decodeRaw(buffer) catch {
-      case Continue(rest) => throw Continue(new ThenParser(rest, next))
+    val next1 = try f1(parser.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap3Parser(rest.asInstanceOf[Parser[A]], f1, f2, f3))
     }
 
-    next.decodeRaw(buffer)
+    val next2 = try f2(next1.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap2Parser(rest.asInstanceOf[Parser[B]], f2, f3))
+    }
+
+    val next3 = try f3(next2.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap1Parser(rest.asInstanceOf[Parser[C]], f3))
+    }
+
+    next3.decodeRaw(buffer)
   }
 
-  override def then[T](other: Parser[T]): Parser[T] = {
-    new ThenParser(parser, next then other)
-  }
+  override def flatMap[T](f4: Out => Parser[T]): Parser[T] = new FlatMap4Parser(parser, f1, f2, f3, f4)
 }
 
-final class ThroughParser[+Out](parser: Parser[Out], next: Parser[_]) extends Parser[Out] {
+final class FlatMap4Parser[A, B, C, D, +Out](
+  parser: Parser[A],
+  f1: A => Parser[B],
+  f2: B => Parser[C],
+  f3: C => Parser[D],
+  f4: D => Parser[Out]
+) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
-    val rv = try parser.decodeRaw(buffer) catch {
-      case Continue(rest) => throw Continue(new ThroughParser(rest, next))
+    val next1 = try f1(parser.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap4Parser(rest.asInstanceOf[Parser[A]], f1, f2, f3, f4))
     }
 
-    try next.decodeRaw(buffer) catch {
-      case Continue(rest) => throw Continue(new ConstParser(parser, rv))
+    val next2 = try f2(next1.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap3Parser(rest.asInstanceOf[Parser[B]], f2, f3, f4))
     }
 
-    rv
+    val next3 = try f3(next2.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap2Parser(rest.asInstanceOf[Parser[C]], f3, f4))
+    }
+
+    val next4 = try f4(next3.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap1Parser(rest.asInstanceOf[Parser[D]], f4))
+    }
+
+    next4.decodeRaw(buffer)
+  }
+
+  override def flatMap[T](f5: Out => Parser[T]): Parser[T] = new FlatMap5Parser(parser, f1, f2, f3, f4, f5)
+}
+
+final class FlatMap5Parser[A, B, C, D, E, +Out](
+  parser: Parser[A],
+  f1: A => Parser[B],
+  f2: B => Parser[C],
+  f3: C => Parser[D],
+  f4: D => Parser[E],
+  f5: E => Parser[Out]
+) extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    val next1 = try f1(parser.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap5Parser(rest.asInstanceOf[Parser[A]], f1, f2, f3, f4, f5))
+    }
+
+    val next2 = try f2(next1.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap4Parser(rest.asInstanceOf[Parser[B]], f2, f3, f4, f5))
+    }
+
+    val next3 = try f3(next2.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap3Parser(rest.asInstanceOf[Parser[C]], f3, f4, f5))
+    }
+
+    val next4 = try f4(next3.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap2Parser(rest.asInstanceOf[Parser[D]], f4, f5))
+    }
+
+    val next5 = try f5(next4.decodeRaw(buffer)) catch {
+      case Continue(rest) =>
+        throw Continue(new FlatMap1Parser(rest.asInstanceOf[Parser[E]], f5))
+    }
+
+    next5.decodeRaw(buffer)
   }
 }
 
-final class ConstParser[+Out](parser: Parser[Out], value: Out) extends Parser[Out] {
+final class ConstParser[+Out](parser: Parser[_], value: Out) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
     try parser.decodeRaw(buffer) catch {
       case Continue(rest) => throw Continue(new ConstParser(parser, value))
     }
 
     value
+  }
+}
+
+final class OrParser[+Out](choice: Parser[Out], next: Parser[Out], committed: Boolean)
+extends Parser[Out] {
+
+  def this(p: Parser[Out], t: Parser[Out]) = this(p, t, false)
+
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    val start = buffer.readerIndex
+
+    try choice.decodeRaw(buffer) catch {
+      case f: Fail =>
+        if (committed || buffer.readerIndex > start) throw Error(f.messageString)
+        next.decodeRaw(buffer)
+      case Continue(rest) =>
+        throw Continue(new OrParser(rest, next, committed || buffer.readerIndex > start))
+    }
+  }
+
+  override def or[O >: Out](other: Parser[O]): Parser[O] = {
+    new OrParser(choice, next or other)
+  }
+}
+
+final class NotParser(parser: Parser[_]) extends Parser[Unit] {
+
+  def decodeRaw(buffer: ChannelBuffer): Unit = {
+    val start = buffer.readerIndex
+    var succeeded = false
+
+    try {
+      parser.decodeRaw(buffer)
+      succeeded = true
+    } catch {
+      case Continue(rest) =>
+        if (buffer.readerIndex > start) {
+          throw Error(() => "Expected "+ parser +" to fail, but already consumed data.")
+        } else {
+          throw Continue(new NotParser(rest))
+        }
+      case f: Fail => ()
+    }
+
+    if (succeeded) {
+      if (buffer.readerIndex > start) {
+        throw Error(() => "Expected "+ parser +" to fail, but already consumed data.")
+      } else {
+        throw Fail(() => "Expected "+ parser +" to fail.")
+      }
+    }
   }
 }
 
@@ -203,56 +350,5 @@ final class RepeatParser[+Out](
     }
 
     result
-  }
-}
-
-final class OrParser[+Out](choice: Parser[Out], next: Parser[Out], committed: Boolean)
-extends Parser[Out] {
-
-  def this(p: Parser[Out], t: Parser[Out]) = this(p, t, false)
-
-  def decodeRaw(buffer: ChannelBuffer): Out = {
-    val start = buffer.readerIndex
-
-    try choice.decodeRaw(buffer) catch {
-      case f: Fail =>
-        if (committed || buffer.readerIndex > start) throw Error(f.message)
-        next.decodeRaw(buffer)
-      case Continue(rest) =>
-        throw Continue(new OrParser(rest, next, committed || buffer.readerIndex > start))
-    }
-  }
-
-  override def or[O >: Out](other: Parser[O]): Parser[O] = {
-    new OrParser(choice, next or other)
-  }
-}
-
-final class NotParser(parser: Parser[_]) extends Parser[Unit] {
-
-  def decodeRaw(buffer: ChannelBuffer): Unit = {
-    val start = buffer.readerIndex
-    var succeeded = false
-
-    try {
-      parser.decodeRaw(buffer)
-      succeeded = true
-    } catch {
-      case Continue(rest) =>
-        if (buffer.readerIndex > start) {
-          throw Error("Expected "+ parser +" to fail, but already consumed data.")
-        } else {
-          throw Continue(new NotParser(rest))
-        }
-      case f: Fail => ()
-    }
-
-    if (succeeded) {
-      if (buffer.readerIndex > start) {
-        throw Error("Expected "+ parser +" to fail, but already consumed data.")
-      } else {
-        throw Fail("Expected "+ parser +" to fail.")
-      }
-    }
   }
 }

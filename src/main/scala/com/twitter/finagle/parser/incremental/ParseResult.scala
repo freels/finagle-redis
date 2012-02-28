@@ -12,6 +12,12 @@ case class Continue[+Out](next: Parser[Out]) extends BlankThrowable with ParseRe
 
 case class Return[@specialized +Out](ret: Out) extends ParseResult[Out]
 
-case class Fail(message: String) extends BlankThrowable with ParseResult[Nothing]
+case class Fail(messageString: () => String) extends BlankThrowable with ParseResult[Nothing] {
+  override def getMessage() = messageString()
+  def message = messageString()
+}
 
-case class Error(message: String) extends BlankThrowable with ParseResult[Nothing]
+case class Error(messageString: () => String) extends BlankThrowable with ParseResult[Nothing] {
+  override def getMessage() = messageString()
+  def message = getMessage()
+}

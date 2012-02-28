@@ -25,9 +25,9 @@ class BacktrackingParser[+Out](inner: Parser[Out], offset: Int) extends Parser[O
       case f: Fail =>
         buffer.readerIndex(start)
         throw f
-      case Error(msg) =>
+      case Error(getMsg) =>
         buffer.readerIndex(start)
-        throw new Fail(msg)
+        throw new Fail(getMsg)
     }
   }
 }

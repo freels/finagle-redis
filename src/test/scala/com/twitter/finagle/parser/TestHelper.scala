@@ -19,7 +19,7 @@ class BenchmarkSpecification extends Specification {
   def benchmark(name: String, iters: Int)(f: => Unit) {
     // warmup
     (1 to (iters / 10)) foreach { _ => f }
-    Thread.sleep(0)
+    Thread.sleep(10)
 
     val total   = time { (1 to iters) foreach { _ => f } }
     val perIter = total / iters.toDouble
@@ -68,7 +68,8 @@ class ParserSpecification extends Specification {
     }
 
     def andFail(err: String) = {
-      rv mustEqual Fail(err)
+      rv must haveClass[Fail]
+      rv.asInstanceOf[Fail].message mustEqual err
       this
     }
 
@@ -78,7 +79,8 @@ class ParserSpecification extends Specification {
     }
 
     def andError(err: String) = {
-      rv mustEqual ParseError(err)
+      rv must haveClass[Error]
+      rv.asInstanceOf[Error].message mustEqual err
       this
     }
 
