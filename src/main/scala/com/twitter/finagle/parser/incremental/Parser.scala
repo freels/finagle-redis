@@ -7,6 +7,8 @@ import com.twitter.finagle.parser.util._
 /**
  * The base class for all incremental ChannelBuffer parsers.
  *
+ * @author Matt Freels
+ *
  * Incremental parsers are designed to process Netty ChannelBuffers
  * that may contain only partial messages. The API is inspired by
  * existing parser combinator libraries like Haskell's Parsec and
@@ -14,6 +16,15 @@ import com.twitter.finagle.parser.util._
  * buffer cannot satisfy a parser, it will return a continuation that
  * saves progess and can be used to finish parsing once more input is
  * received.
+ *
+ * Like Parsec, incremental parsers are predictive, in the sense that
+ * if they consume any data, they are expected to succeed. If a parser
+ * Fails, it has not consumed any data. If a parser Errors, then it
+ * has consumed data, and is not normally recoverable. The notable
+ * exception is that a parser that can potentially Error can be made
+ * one that Fails by wrapping it with `attempt`.
+ *
+ * Example:
  *
  * As an example, here is a full parser of Redis's reply protocol:
  *
@@ -98,6 +109,13 @@ import com.twitter.finagle.parser.util._
 abstract class Parser[+Out] {
   import Parser._
 
+  /**
+   * Parse a `ChannelBuffer` and return a result, which is one of `Return`,
+   * `Fail`, `Error`, or `Continue`. Return, Error, and Fail are final
+   * results. Continue indicates that there was insufficient data to
+   * complete parsing, and returns an intermediate parser that should be
+   * used to continue parsing once more data is available.
+   */
   def decode(buffer: ChannelBuffer): ParseResult[Out] = {
     try Return(decodeRaw(buffer)) catch {
       case c: Continue[_] => c.asInstanceOf[Continue[Out]]
@@ -106,59 +124,120 @@ abstract class Parser[+Out] {
     }
   }
 
+  /**
+   * Parse a `ChannelBuffer` and directly return the output. Throws a
+   * `ParseException` in the case parsing fails.
+   */
+  @throws(classOf[ParseException])
   def decodeRaw(buffer: ChannelBuffer): Out
 
+  /**
+   * Return a Netty `FrameDecoder` that can be used in a `ChannelPipeline`.
+   */
   def toFrameDecoder = new ParserDecoder(this)
 
 
-  // basic composition
+  /* Basic Composition */
 
+  /**
+   * Returns a parser that applies this and continues with the
+   * parser returned by applying `f` to the intermediate result.
+   */
   def flatMap[T](f: Out => Parser[T]): Parser[T] = new FlatMap1Parser(this, f)
 
+  /**
+   * Returns a parser that applies this and continues with the
+   * parser returned by applying `f` to the intermediate result.
+   */
+  def andThen[T](f: Out => Parser[T]): Parser[T] = this flatMap f
+
+  /**
+   * Returns a parser that applies `f` to the result of this.
+   */
   def map[T](f: Out => T): Parser[T] = this flatMap { rv => success(f(rv)) }
 
-  def then[T](rhs: Parser[T]): Parser[T] = this flatMap { _ => rhs }
+  /**
+   * Returns a parser that discards the result of this and returns the result of `next`.
+   */
+  def then[T](next: Parser[T]): Parser[T] = this flatMap { _ => next }
 
-  def then[T](rv: T): Parser[T] = this then success(rv)
+  /**
+   * Returns a parser that discards the result of this and returns `value`.
+   */
+  def then[T](value: T): Parser[T] = new ConstParser(this, value)
 
-  def thenSkip(rhs: Parser[_]): Parser[Out] = this flatMap { rv => new ConstParser(rhs, rv) }
+  /**
+   * Returns a parser that discards the result of `skipped` and returns the result of parsing this.
+   */
+  def thenSkip(skipped: Parser[_]): Parser[Out] = this flatMap { rv => skipped then rv }
 
   def and[T, C <: ChainableTuple](rhs: Parser[T])(implicit chn: Out => C): Parser[C#Next[T]] = {
     for (tup <- this; next <- rhs) yield chn(tup).append(next)
   }
 
-  def or[O >: Out](rhs: Parser[O]): Parser[O] = new OrParser(this, rhs)
-
+  /**
+   * Returns a parser that attempts this and applies `next` if this fails.
+   */
+  def or[O >: Out](next: Parser[O]): Parser[O] = new OrParser(this, next)
 
 
   // yay operators...this may be a bad idea.
 
+  /**
+   * Parse this zero or more times
+   */
   def * = rep(this)
 
+  /**
+   * Parse this one or more times.
+   */
   def + = rep1(this)
 
+  /**
+   * Parse this zero or one time.
+   */
   def ? = opt(this)
 
-  def <<[T](rhs: Parser[T]) = this thenSkip rhs
+  /**
+   * Equivalent to `this thenSkip next`
+   */
+  def <<[T](next: Parser[T]) = this thenSkip next
 
-  def >>[T](rhs: Parser[T]) = this then rhs
+  /**
+   * Equivalent to `this then next`
+   */
+  def >>[T](next: Parser[T]) = this then next
 
+  /**
+   * Equivalent to `this flatMap next`
+   */
   def >>=[T](f: Out => Parser[T]) = this flatMap f
 
-  def ^[T](r: T) = this then r
+  /**
+   * Equivalent to `this then value`
+   */
+  def ^[T](value: T) = this then value
 
+  /**
+   * Equivalent to `this map f
+   */
   def ^^[T](f: Out => T) = this map f
 
-  def |[T](rhs: Parser[T]) = this or rhs
+  /**
+   * Equivalent to `this or next`
+   */
+  def |[T](next: Parser[T]) = this or next
 
-  def &[T, C <: ChainableTuple](rhs: Parser[T])(implicit c: Out => C): Parser[C#Next[T]] = {
-    this and rhs
+  /**
+   * Equivalent to `this and next`
+   */
+  def &[T, C <: ChainableTuple](next: Parser[T])(implicit c: Out => C): Parser[C#Next[T]] = {
+    this and next
   }
-
 }
 
-final class ReturnParser[+Out](rv: Out) extends Parser[Out] {
-  def decodeRaw(buffer: ChannelBuffer) = rv
+final class ReturnParser[+Out](value: Out) extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer) = value
 }
 
 final class FailParser(message: => String) extends Parser[Nothing] {
@@ -170,6 +249,14 @@ final class ErrorParser(message: => String) extends Parser[Nothing] {
 }
 
 final class RawBufferParser[+Out](f: ChannelBuffer => Out) extends Parser[Out] {
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    try f(buffer) catch {
+      case e: IndexOutOfBoundsException => throw Continue(this)
+    }
+  }
+}
+
+final class RepeatingRawBufferParser[+Out](f: ChannelBuffer => Out) extends Parser[Out] {
   def decodeRaw(buffer: ChannelBuffer): Out = {
     val start = buffer.readerIndex
     try f(buffer) catch {
@@ -436,58 +523,105 @@ final class RepeatParser[+Out](
 
 object Parser {
 
-  // lifting values
+  /* Lifting Values */
 
+  /**
+   * A parser that consumes no data and fails with `message`.
+   */
   def fail(message: String) = new FailParser(message)
 
+  /**
+   * A parser that consumes no data and raises with `message`.
+   */
   def error(message: String) = new ErrorParser(message)
 
-  def success[T](t: T) = new ReturnParser(t)
+  /**
+   * A parser that consumes no data and returns `value`.
+   */
+  def success[T](value: T) = new ReturnParser(value)
 
+  /**
+   * A parser that consumes no data and returns Unit.
+   */
   val unit = success(())
 
-  def liftOpt[T](o: Option[T]): Parser[T] = o match {
+  /**
+   * A parser that consumes no data and succeeds or fails based on whether or not `opt` is defined.
+   */
+  def liftOpt[T](opt: Option[T]): Parser[T] = opt match {
     case Some(r) => success(r)
     case None    => fail("Parse failed.")
   }
 
 
-  // behavior transformation
+  /* Behavior Transformation */
 
+  /**
+   * Parse `p` zero or one time.
+   */
   def opt[T](p: Parser[T]): Parser[Option[T]] = p map { Some(_) } or success(None)
 
+  /**
+   * Convert unrecoverable Errors into Fails, by saving a marker of
+   * the current ChannelBuffer state, and only advancing if `p`
+   * succeeds. If `p` Errors, reset the ChannelBuffer, and Fail
+   * instead.
+   */
   def attempt[T](p: Parser[T]) = new BacktrackingParser(p)
 
 
-  // repetition
+  /* Repetition */
 
+  /**
+   * Parse `p` zero or more times.
+   */
   def rep[T](p: Parser[T]): Parser[Seq[T]] = new RepeatParser(p)
 
+  /**
+   * Parse `p` one time, followed by `q` zero or more times.
+   */
   def rep1[T](p: Parser[T], q: Parser[T]): Parser[Seq[T]] = {
     val getRest = rep(q)
 
     for (head <- p; tail <- getRest) yield (head +: tail)
   }
 
+  /**
+   * Parse `p` one or more times.
+   */
   def rep1[T](p: Parser[T]): Parser[Seq[T]] = {
     rep1(p, p)
   }
 
+  /**
+   * Parse `p` one or more times, separated by `sep`.
+   */
   def rep1sep[T](p: Parser[T], sep: Parser[Any]): Parser[Seq[T]] = {
     rep1(p, sep then p)
   }
 
+  /**
+   * Parse `p` zero or more times, separated by `sep`.
+   */
   def repsep[T](p: Parser[T], sep: Parser[Any]): Parser[Seq[T]] = {
     rep1sep(p, sep) or success[Seq[T]](Nil)
   }
 
-  def repN[T](total: Int, parser: Parser[T]): Parser[Seq[T]] = {
-    new RepeatTimesParser(parser, total)
+  /**
+   * Parse `p` a total of `count` times.
+   */
+  def repN[T](count: Int, p: Parser[T]): Parser[Seq[T]] = {
+    new RepeatTimesParser(p, count)
   }
 
 
-  // matching parsers
+  /* Matching Parsers */
 
+  /**
+   * Succeed parsing if the input buffer matches `m`.
+   *
+   * Returns a ChannelBuffer of the bytes matched by `m`.
+   */
   def accept(m: Matcher) = new MatchParser(m) flatMap { readBytes(_) }
 
   implicit def acceptString(choice: String) = {
@@ -495,36 +629,75 @@ object Parser {
     new MatchParser(new DelimiterMatcher(bytes)) then skipBytes(bytes.size)
   }
 
+  /**
+   * Succeed parsing if the input buffer starts with `choice`.
+   *
+   * Returns a ChannelBuffer of the bytes matched by `choice`.
+   */
   def accept(choice: String): Parser[ChannelBuffer] = {
     accept(new DelimiterMatcher(choice))
     // val m = new MatchParser(new DelimiterMatcher(choice))
     // m then skipBytes(choice.size) then success(choice)
   }
 
+  /**
+   * Succeed parsing if the input buffer starts with any of the alternatives.
+   *
+   * Returns a ChannelBuffer of the bytes matched.
+   */
   def accept(first: String, second: String, rest: String*): Parser[ChannelBuffer] = {
     accept(AlternateMatcher(first +: second +: rest))
   }
 
+  /**
+   * Succeed parsing if the input buffer matches `m`.
+   *
+   * Returns the length of the match, consuming no data.
+   */
   def guard(m: Matcher) = new MatchParser(m)
 
+  /**
+   * Succeed parsing if the input buffer starts with `choice`.
+   *
+   * Returns the length of `choice`, consuming no data.
+   */
   def guard(choice: String): Parser[Int] = {
     guard(new DelimiterMatcher(choice))
   }
 
+  /**
+   * Succeed parsing if the input buffer starts with any of the alternatives.
+   *
+   * Returns the length of the match, consuming no data.
+   */
   def guard(first: String, second: String, rest: String*): Parser[Int] = {
     guard(AlternateMatcher(first +: second +: rest))
   }
 
+  /**
+   * Succeed in parsing if the input buffer does not match `m`.
+   *
+   * Returns Unit, consuming no data.
+   */
   def not(m: Matcher) = guard(m.negate) then unit
 
+  /**
+   * Succeed in parsing if the input buffer does not start with `choice`.
+   *
+   * Returns Unit, consuming no data.
+   */
   def not(choice: String): Parser[Unit] = {
     not(new DelimiterMatcher(choice))
   }
 
+  /**
+   * Succeed in parsing if the input buffer does not start with any of the alternatives.
+   *
+   * Returns Unit, consuming no data.
+   */
   def not(first: String, second: String, rest: String*): Parser[Unit] = {
     not(AlternateMatcher(first +: second +: rest))
   }
-
 
   def choice[T](choices: (String, Parser[T])*): Parser[T] = {
     val (m, p)           = choices.head
@@ -535,82 +708,165 @@ object Parser {
   }
 
 
-  // Delimiter parsers
+  /* Delimiter Parsers */
 
+  /**
+   * Reads bytes up to and including those matched by `m`.
+   *
+   * Returns all bytes before the match.
+   */
   def readTo(m: Matcher) = new ConsumingDelimiterParser(m)
 
+  /**
+   * Reads bytes up to and including `choice`.
+   *
+   * Returns all bytes before `choice`.
+   */
   def readTo(choice: String): Parser[ChannelBuffer] = {
     readTo(new DelimiterMatcher(choice))
   }
 
+  /**
+   * Reads bytes up to and including the first occurrence of any of the alternatives.
+   *
+   * Returns all bytes before the match.
+   */
   def readTo(first: String, second: String, rest: String*): Parser[ChannelBuffer] = {
     readTo(AlternateMatcher(first +: second +: rest))
   }
 
+  /**
+   * Returns the number of bytes before `s`. Consumes no data.
+   */
   def bytesBefore(s: String) = {
     new DelimiterFinderParser(new DelimiterMatcher(s.getBytes("US-ASCII")))
   }
 
+  /**
+   * Reads bytes up to but excluding those matched by `m`.
+   */
   def readUntil(m: Matcher) = new DelimiterParser(m)
 
+  /**
+   * Reads bytes up to but excluding `choice'.
+   */
   def readUntil(choice: String): Parser[ChannelBuffer] = {
     readUntil(new DelimiterMatcher(choice))
   }
 
+  /**
+   * Reads bytes up to but excluding the first occurrence of any of the alternatives.
+   */
   def readUntil(first: String, second: String, rest: String*): Parser[ChannelBuffer] = {
     readUntil(AlternateMatcher(first +: second +: rest))
   }
 
+  /**
+   * Reads all bytes matching `m`.
+   */
   def readWhile(m: Matcher) = readUntil(new NotMatcher(m))
 
+  /**
+   * Reads all bytes matching `choice`.
+   */
   def readWhile(choice: String): Parser[ChannelBuffer] = {
     readWhile(new DelimiterMatcher(choice))
   }
 
+  /**
+   * Reads all bytes while matching one of the alternatives.
+   */
   def readWhile(first: String, second: String, rest: String*): Parser[ChannelBuffer] = {
     readWhile(AlternateMatcher(first +: second +: rest))
   }
 
-  val readLine = readTo(Matchers.CRLF)
-  val readWord = readUntil(Matchers.WhiteSpace)
 
+  /* Basic Bytes Parsers */
 
-  // basic reading parsers
+  /**
+   * Pass the underlying input buffer to `f`, allowign for arbitrary
+   * manipulation of the underlying buffer. The current readerIndex of
+   * the buffer is saved, and is reset if IndexOutOfBoundsException is
+   * thrown. In this sense, it behaves somewhat like Netty's
+   * ReplayingCodec. `f` can potentially be called multiple times if
+   * there is insufficient data to satisfy `f`.
+   */
+  def withRawBuffer[T](f: ChannelBuffer => T) = new RepeatingRawBufferParser(f)
 
-  def withRawBuffer[T](f: ChannelBuffer => T) = new RawBufferParser(f)
-
+  /**
+   * Read `count` bytes. If `count` is large enough, this will create
+   * a new dynamic ChannelBuffer, and store the intermediate chunks.
+   * Otherwise, if `count` is small, this calls `readSlice`.
+   */
   def readBytes(count: Int) = new BytesParser(count)
 
+  /**
+   * Skip `count` bytes.
+   */
   def skipBytes(count: Int) = new SkipBytesParser(count)
 
 
-  // integral primitives
+  /* Primitive Types Parsers */
 
-  val readByte = withRawBuffer { _.readByte }
+  protected def unsafeWithRawBuffer[T](f: ChannelBuffer => T) = new RawBufferParser(f)
 
-  val readShort = withRawBuffer { _.readShort }
+  /**
+   * Read a signed byte.
+   */
+  val readByte = unsafeWithRawBuffer { _.readByte }
 
-  val readMedium = withRawBuffer { _.readMedium }
+  /**
+   * Read a signed 16-bit short integer.
+   */
+  val readShort = unsafeWithRawBuffer { _.readShort }
 
-  val readInt = withRawBuffer { _.readInt }
+  /**
+   * Read a signed 24-bit medium integer.
+   */
+  val readMedium = unsafeWithRawBuffer { _.readMedium }
 
-  val readLong = withRawBuffer { _.readLong }
+  /**
+   * Read a signed 32-bit integer.
+   */
+  val readInt = unsafeWithRawBuffer { _.readInt }
 
-  // Unsigned integral primitives
+  /**
+   * Read a signed 64-bit integer.
+   */
+  val readLong = unsafeWithRawBuffer { _.readLong }
 
-  val readUnsignedByte = withRawBuffer { _.readUnsignedByte }
+  /**
+   * Read an unsigned byte.
+   */
+  val readUnsignedByte = unsafeWithRawBuffer { _.readUnsignedByte }
 
-  val readUnsignedShort = withRawBuffer { _.readUnsignedShort }
+  /**
+   * Read an unsigned 16-bit short integer.
+   */
+  val readUnsignedShort = unsafeWithRawBuffer { _.readUnsignedShort }
 
-  val readUnsignedMedium = withRawBuffer { _.readUnsignedMedium }
+  /**
+   * Read an unsigned 24-bit medium integer.
+   */
+  val readUnsignedMedium = unsafeWithRawBuffer { _.readUnsignedMedium }
 
-  val readUnsignedInt = withRawBuffer { _.readUnsignedInt }
+  /**
+   * Read an unsigned 32-bit integer.
+   */
+  val readUnsignedInt = unsafeWithRawBuffer { _.readUnsignedInt }
 
-  // non-integral primitives
+  /**
+   * Read a 2-byte UTF-16 character.
+   */
+  val readChar = unsafeWithRawBuffer { _.readChar }
 
-  val readChar = withRawBuffer { _.readChar }
+  /**
+   * Read a 64-bit floating point number.
+   */
+  val readDouble = unsafeWithRawBuffer { _.readDouble }
 
-  val readDouble = withRawBuffer { _.readDouble }
-
-  val readFloat = withRawBuffer { _.readFloat }
+  /**
+   * Read a 32-bit floating point number.
+   */
+  val readFloat = unsafeWithRawBuffer { _.readFloat }
 }

@@ -9,8 +9,10 @@ import com.twitter.finagle.parser.test._
 object ParserSpec extends ParserSpecification {
   import Parser._
 
+  val readLine = readTo("\r\n")
+
   "DelimiterParser" in {
-    val parser = readTo("\r\n") map asString
+    val parser = readLine map asString
 
     parser mustParse "hello world\r\n" andReturn "hello world" leavingBytes(0)
     parser mustParse "one\r\ntwo\r\n" andReturn "one" readingBytes(5)
@@ -85,11 +87,6 @@ object ParserSpec extends ParserSpecification {
       val parser = readTo("baz") map asString
       parser mustParse "foobazbarbaz" andReturn "foo" readingBytes(6)
       parser mustParse "foobar"       andContinue()
-    }
-
-    "readLine" in {
-      readLine map asString mustParse "before\rstillstill"          andContinue()
-      readLine map asString mustParse "before\rstillstill\r\nafter" leavingBytes(5)
     }
 
     "fail" in {
