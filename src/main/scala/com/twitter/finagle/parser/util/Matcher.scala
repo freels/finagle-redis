@@ -31,7 +31,7 @@ abstract class Matcher extends ChannelBufferIndexFinder {
   def unary_! = negate
 }
 
-class DelimiterMatcher(delimiter: Array[Byte]) extends Matcher {
+class BytesMatcher(delimiter: Array[Byte]) extends Matcher {
 
   def this(s: String) = this(s.getBytes("US-ASCII"))
 
@@ -49,7 +49,7 @@ class DelimiterMatcher(delimiter: Array[Byte]) extends Matcher {
     delimiter.length
   }
 
-  override def toString = "DelimiterMatcher("+ (new String(delimiter, "US-ASCII")) +")"
+  override def toString = "BytesMatcher("+ (new String(delimiter, "US-ASCII")) +")"
 }
 
 object AlternateMatcher {
@@ -60,7 +60,7 @@ object AlternateMatcher {
 
 class AlternateMatcher(delimiters: Array[Array[Byte]]) extends Matcher {
 
-  val choices = delimiters map { new DelimiterMatcher(_) }
+  val choices = delimiters map { new BytesMatcher(_) }
 
   val bytesNeeded = delimiters map { _.length } max
 

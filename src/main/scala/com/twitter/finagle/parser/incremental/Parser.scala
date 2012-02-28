@@ -37,7 +37,7 @@ import com.twitter.finagle.parser.util._
  *   case class Status(msg: ChannelBuffer) extends Reply
  *   case class Error(msg: ChannelBuffer) extends Reply
  *   case class Integer(i: Int) extends Reply
- *   case class Bulk(bytes: ChannelBuffer) extends Reply
+ *   case class Bulk(bytes: Option[ChannelBuffer]) extends Reply
  *   case class MultiBulk(bulks: Option[Seq[Bulk]]) extends Reply
  * }
  *
@@ -52,8 +52,8 @@ import com.twitter.finagle.parser.util._
  * val readIntegerReply = ":" then readInt map { Reply.Integer(_) }
  *
  * val readBulkReply = "$" then readInt flatMap { count =>
- *   readBytes(count)
- * } thenSkip CRLF map { Reply.Bulk(_) }
+ *   if (count == -1) success(null) else readBytes(count)
+ * } thenSkip CRLF map { b => Reply.Bulk(Option(b)) }
  *
  * val readMultiBulkReply = "*" then readInt flatMap { count =>
  *   if (count == -1) success(null) else repN(count, readBulkReply)
@@ -626,7 +626,7 @@ object Parser {
 
   implicit def acceptString(choice: String) = {
     val bytes = choice.getBytes("US-ASCII")
-    new MatchParser(new DelimiterMatcher(bytes)) then skipBytes(bytes.size)
+    new MatchParser(new BytesMatcher(bytes)) then skipBytes(bytes.size)
   }
 
   /**
@@ -635,8 +635,8 @@ object Parser {
    * Returns a ChannelBuffer of the bytes matched by `choice`.
    */
   def accept(choice: String): Parser[ChannelBuffer] = {
-    accept(new DelimiterMatcher(choice))
-    // val m = new MatchParser(new DelimiterMatcher(choice))
+    accept(new BytesMatcher(choice))
+    // val m = new MatchParser(new BytesMatcher(choice))
     // m then skipBytes(choice.size) then success(choice)
   }
 
@@ -662,7 +662,7 @@ object Parser {
    * Returns the length of `choice`, consuming no data.
    */
   def guard(choice: String): Parser[Int] = {
-    guard(new DelimiterMatcher(choice))
+    guard(new BytesMatcher(choice))
   }
 
   /**
@@ -687,7 +687,7 @@ object Parser {
    * Returns Unit, consuming no data.
    */
   def not(choice: String): Parser[Unit] = {
-    not(new DelimiterMatcher(choice))
+    not(new BytesMatcher(choice))
   }
 
   /**
@@ -723,7 +723,7 @@ object Parser {
    * Returns all bytes before `choice`.
    */
   def readTo(choice: String): Parser[ChannelBuffer] = {
-    readTo(new DelimiterMatcher(choice))
+    readTo(new BytesMatcher(choice))
   }
 
   /**
@@ -739,7 +739,7 @@ object Parser {
    * Returns the number of bytes before `s`. Consumes no data.
    */
   def bytesBefore(s: String) = {
-    new DelimiterFinderParser(new DelimiterMatcher(s.getBytes("US-ASCII")))
+    new DelimiterFinderParser(new BytesMatcher(s.getBytes("US-ASCII")))
   }
 
   /**
@@ -751,7 +751,7 @@ object Parser {
    * Reads bytes up to but excluding `choice'.
    */
   def readUntil(choice: String): Parser[ChannelBuffer] = {
-    readUntil(new DelimiterMatcher(choice))
+    readUntil(new BytesMatcher(choice))
   }
 
   /**
@@ -770,7 +770,7 @@ object Parser {
    * Reads all bytes matching `choice`.
    */
   def readWhile(choice: String): Parser[ChannelBuffer] = {
-    readWhile(new DelimiterMatcher(choice))
+    readWhile(new BytesMatcher(choice))
   }
 
   /**
