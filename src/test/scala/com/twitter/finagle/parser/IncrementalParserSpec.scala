@@ -271,7 +271,7 @@ object ParserSpec extends ParserSpecification {
     }
 
     "decodeDecimalInt" in {
-      val parser = readLine map { decodeDecimalInt(_) }
+      val parser = readLine map { buf => decodeDecimalInt(buf, buf.readableBytes) }
 
       parser mustParse "123\r\n"  andReturn  123
       parser mustParse "+123\r\n" andReturn  123

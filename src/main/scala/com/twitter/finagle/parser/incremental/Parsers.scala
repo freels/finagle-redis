@@ -31,48 +31,28 @@ object Parsers {
 
   // repetition
 
-  def rep[T](p: Parser[T]): Parser[List[T]] = {
-    val optP = opt(p)
+  def rep[T](p: Parser[T]): Parser[Seq[T]] = new RepeatParser(p)
 
-    def go(prev: List[T]): Parser[List[T]] = optP flatMap {
-      case Some(t) => go(t :: prev)
-      case None    => success(prev)
-    }
-
-    go(Nil) map { _.reverse }
-  }
-
-  def rep1[T](p: Parser[T], q: Parser[T]): Parser[List[T]] = {
+  def rep1[T](p: Parser[T], q: Parser[T]): Parser[Seq[T]] = {
     val getRest = rep(q)
 
-    for (head <- p; tail <- getRest) yield (head :: tail)
+    for (head <- p; tail <- getRest) yield (head +: tail)
   }
 
-  def rep1[T](p: Parser[T]): Parser[List[T]] = {
+  def rep1[T](p: Parser[T]): Parser[Seq[T]] = {
     rep1(p, p)
   }
 
-  def rep1sep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
-    val optSep = sep then success(true) or success(false)
-
-    def go(prev: List[T]): Parser[List[T]] = {
-      p flatMap { t =>
-        optSep flatMap {
-          case true  => go(t :: prev)
-          case false => success(t :: prev)
-        }
-      }
-    }
-
-    go(Nil) map { _.reverse }
+  def rep1sep[T](p: Parser[T], sep: Parser[Any]): Parser[Seq[T]] = {
+    rep1(p, sep then p)
   }
 
-  def repsep[T](p: Parser[T], sep: Parser[Any]): Parser[List[T]] = {
-    rep1sep(p, sep) or success[List[T]](Nil)
+  def repsep[T](p: Parser[T], sep: Parser[Any]): Parser[Seq[T]] = {
+    rep1sep(p, sep) or success[Seq[T]](Nil)
   }
 
   def repN[T](total: Int, parser: Parser[T]): Parser[Seq[T]] = {
-    new RepeatParser(parser, total)
+    new RepeatTimesParser(parser, total)
   }
 
 
@@ -176,81 +156,31 @@ object Parsers {
 
   // integral primitives
 
-  val readByte = new Parser[Byte] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readByte catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readByte = withRawBuffer { _.readByte }
 
-  val readShort = new Parser[Short] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readShort catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readShort = withRawBuffer { _.readShort }
 
-  val readMedium = new Parser[Int] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readMedium catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readMedium = withRawBuffer { _.readMedium }
 
-  val readInt = new Parser[Int] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readInt catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readInt = withRawBuffer { _.readInt }
 
-  val readLong = new Parser[Long] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readLong catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
-
+  val readLong = withRawBuffer { _.readLong }
 
   // Unsigned integral primitives
 
-  val readUnsignedByte = new Parser[Short] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readUnsignedByte catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readUnsignedByte = withRawBuffer { _.readUnsignedByte }
 
-  val readUnsignedShort = new Parser[Int] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readUnsignedShort catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readUnsignedShort = withRawBuffer { _.readUnsignedShort }
 
-  val readUnsignedMedium = new Parser[Int] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readUnsignedMedium catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readUnsignedMedium = withRawBuffer { _.readUnsignedMedium }
 
-  val readUnsignedInt = new Parser[Long] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readUnsignedInt catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
-
+  val readUnsignedInt = withRawBuffer { _.readUnsignedInt }
 
   // non-integral primitives
 
-  val readChar = new Parser[Char] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readChar catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readChar = withRawBuffer { _.readChar }
 
-  val readDouble = new Parser[Double] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readDouble catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readDouble = withRawBuffer { _.readDouble }
 
-  val readFloat = new Parser[Float] {
-    def decodeRaw(buffer: ChannelBuffer) = {
-      try buffer.readFloat catch { case e: IndexOutOfBoundsException => throw Continue(this) }
-    }
-  }
+  val readFloat = withRawBuffer { _.readFloat }
 }

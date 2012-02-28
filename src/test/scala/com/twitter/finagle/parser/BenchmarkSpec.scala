@@ -10,38 +10,12 @@ object Redis {
   import Parsers._
   import DecodingHelpers._
 
-  //val readInt = readLine map { decodeDecimalInt(_) }
-
-  val readInt = withRawBuffer { buf =>
-    var result = 0
-    var sign   = 1
-
-    var c = buf.readByte
-
-    if (c == '-') {
-      sign = -1
-    } else if (c != '+') {
-      result *= 10
-      result += DecimalIntCodec.parseByte(c)
-    }
-
-    var done = false
-    do {
-      c = buf.readByte
-
-      if (c == '\r') {
-        buf.readByte
-        done = true
-      } else {
-        result *= 10
-        result += DecimalIntCodec.parseByte(c)
-      }
-    } while (!done)
-
-    result * sign
+  val skipCRLF = skipBytes(2)
+  val readInt = withRawBuffer { b =>
+    val int = decodeDecimalInt(b)
+    b.skipBytes(2)
+    int
   }
-
-  val skipCRLF       = skipBytes(2)
   val readBulk       = readInt >>= { readBytes(_) through skipCRLF }
   val readSingleBulk = "$" >> readBulk
   val readMultiBulk  = "*" >> (readInt >>= { repN(_, readSingleBulk) })
@@ -57,7 +31,7 @@ object IncrementalParserPerfSpec extends BenchmarkSpecification {
     for (x <- 1 to 10) {
       benchmark("test 1", 100000) {
         buf1.resetReaderIndex
-        Redis.readMultiBulk.decodeRaw(buf1)
+        Redis.readMultiBulk.decode(buf1)
       }
     }
   }

@@ -51,36 +51,50 @@ object DecimalIntCodec {
     dest.writeBytes(encodeArray(int))
   }
 
-  @inline def decode(buf: ChannelBuffer): Int = {
-    decode(buf, buf.readableBytes)
+  def decode(buf: ChannelBuffer): Int = {
+    decode(buf, Int.MaxValue)
   }
 
-  @inline def decode(buf: ChannelBuffer, numBytes: Int): Int = {
+  def decode(buf: ChannelBuffer, maxBytes: Int): Int = {
     var result = 0
     var sign   = 1
+    var done   = false
 
-    val c = buf.readByte
+    val c = buf.getByte(buf.readerIndex)
 
     if (c == '-') {
       sign = -1
     } else if (c != '+') {
-      result *= 10
-      result += parseByte(c)
+      val n = c - AsciiZero
+
+      if (0 <= n && n <= 9) {
+        result *= 10
+        result += n
+
+      } else {
+        done = true
+      }
     }
 
+    if (!done) buf.readByte
+
     var i = 1
-    while (i < numBytes) {
-      result *= 10
-      result += parseByte(buf.readByte)
-      i += 1
+    while (i < maxBytes && !done) {
+
+      val n = buf.getByte(buf.readerIndex) - AsciiZero
+
+      if (0 <= n && n <= 9) {
+        result *= 10
+        result += n
+        buf.readByte
+
+        i += 1
+
+      } else {
+        done = true
+      }
     }
 
     result * sign
-  }
-
-  @inline def parseByte(b: Byte) = {
-    val n = b - AsciiZero
-    if (n < 0 || n > 9) throw new ParseException("Invalid integer char")
-    n
   }
 }

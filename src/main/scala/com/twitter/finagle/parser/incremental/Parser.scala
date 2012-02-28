@@ -1,6 +1,7 @@
 package com.twitter.finagle.parser.incremental
 
 import scala.annotation.tailrec
+import scala.collection.mutable.ListBuffer
 import org.jboss.netty.buffer.ChannelBuffer
 import com.twitter.finagle.parser.util.ChainableTuple
 
@@ -76,7 +77,14 @@ final class ErrorParser(message: String) extends Parser[Nothing] {
 }
 
 final class RawBufferParser[+Out](f: ChannelBuffer => Out) extends Parser[Out] {
-  def decodeRaw(buffer: ChannelBuffer) = f(buffer)
+  def decodeRaw(buffer: ChannelBuffer): Out = {
+    val start = buffer.readerIndex
+    try f(buffer) catch {
+      case e: IndexOutOfBoundsException =>
+        buffer.readerIndex(start)
+        throw Continue(this)
+    }
+  }
 }
 
 final class FlatMapParser[T, +Out](parser: Parser[T], f: T => Parser[Out]) extends Parser[Out] {
@@ -140,9 +148,7 @@ final class ConstParser[+Out](parser: Parser[Out], value: Out) extends Parser[Ou
   }
 }
 
-
-
-final class RepeatParser[+Out](
+final class RepeatTimesParser[+Out](
   parser: Parser[Out],
   total: Int,
   prevResult: Array[Any] = null,
@@ -167,11 +173,36 @@ final class RepeatParser[+Out](
         i += 1
       }
     } catch {
-      case Continue(rest) => throw Continue(new RepeatParser(parser, total, result, i, rest))
+      case Continue(rest) => throw Continue(new RepeatTimesParser(parser, total, result, i, rest))
         case e => println(e); throw e
     }
 
     result.toSeq.asInstanceOf[Seq[Out]]
+  }
+}
+
+final class RepeatParser[+Out](
+  parser: Parser[Out],
+  prevResult: ListBuffer[Out] = null,
+  currParser: Parser[Out] = null
+) extends Parser[Seq[Out]] {
+  def decodeRaw(buffer: ChannelBuffer): Seq[Out] = {
+    val result = if (prevResult ne null) prevResult else ListBuffer[Out]()
+
+    try {
+      if (currParser ne null) {
+        result += currParser.decodeRaw(buffer)
+      }
+
+    do {
+      result += parser.decodeRaw(buffer)
+    } while (true)
+    } catch {
+      case Continue(rest) => throw Continue(new RepeatParser[Out](parser, result, rest.asInstanceOf[Parser[Out]]))
+      case f: Fail => ()
+    }
+
+    result
   }
 }
 

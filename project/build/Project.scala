@@ -4,8 +4,6 @@ import com.twitter.sbt._
 class Project(info: ProjectInfo) extends StandardLibraryProject(info)
 with DefaultRepos {
 
-  //override def compileOptions = super.compileOptions ++ compileOptions("-optimise")
-
   val finagle   = "com.twitter" % "finagle-core_2.9.1" % "1.11.1"
   //val memcached = "com.twitter" % "finagle-memcached" % "1.6.2"
 
