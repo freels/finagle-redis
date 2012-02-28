@@ -321,7 +321,6 @@ final class RepeatTimesParser[+Out](
       }
     } catch {
       case Continue(rest) => throw Continue(new RepeatTimesParser(parser, total, result, i, rest))
-        case e => println(e); throw e
     }
 
     result.toSeq.asInstanceOf[Seq[Out]]

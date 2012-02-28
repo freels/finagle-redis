@@ -47,14 +47,14 @@ object Redis {
     0
   }
 
-  val skipCRLF = skipBytes(2)
+  val CRLF     = acceptString("\r\n")
   val readInt  = withRawBuffer { decodeInt(_) }
   val readLine = readTo("\r\n")
 
   val readStatusReply    = "+" then readLine map { Reply.Status(_) }
   val readErrorReply     = "-" then readLine map { Reply.Error(_) }
   val readIntegerReply   = ":" then readInt map { Reply.Integer(_) }
-  val readBulkReply      = "$" then readInt flatMap { readBytes(_) } thenSkip skipCRLF map { Reply.Bulk(_) }
+  val readBulkReply      = "$" then readInt flatMap { count => readBytes(count) } thenSkip CRLF map { Reply.Bulk(_) }
   val readMultiBulkReply = "*" then readInt flatMap { count =>
     if (count == -1) success(null) else repN(count, readBulkReply)
   } map { bulks =>
