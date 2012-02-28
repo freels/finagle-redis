@@ -130,7 +130,7 @@ object ParserSpec extends ParserSpecification {
       parser mustParse "x"    andFail()        readingBytes(0)
       parser mustParse "fx"   andFail()        readingBytes(0)
       parser mustParse "fox"  andFail()        readingBytes(0)
-    }
+   }
 
     "choice" in {
       val parser = choice(

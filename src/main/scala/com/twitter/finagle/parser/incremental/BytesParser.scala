@@ -12,56 +12,53 @@ class BytesParser(bytesLeft: Int, data: ChannelBuffer = null) extends Parser[Cha
   import BytesParser._
 
   def decodeRaw(buffer: ChannelBuffer) = {
-    try buffer.readSlice(bytesLeft) catch {
-      case e: IndexOutOfBoundsException => throw Continue(this)
+    if (data eq null) {
+      if (buffer.readableBytes >= bytesLeft) {
+        buffer.readSlice(bytesLeft)
+
+      } else if (buffer.readableBytes >= ChunkSize) {
+        val newData = ChannelBuffers.buffer(bytesLeft)
+
+        buffer.readBytes(newData, ChunkSize)
+        throw Continue(new BytesParser(bytesLeft - ChunkSize, newData))
+
+      } else {
+        throw Continue(this)
+      }
+    } else {
+      if (buffer.readableBytes >= bytesLeft) {
+        var newLeft = bytesLeft - buffer.readableBytes
+        if (newLeft < 0) newLeft = 0
+
+        buffer.readBytes(data, bytesLeft - newLeft)
+        data
+
+      } else if (buffer.readableBytes >= ChunkSize) {
+        buffer.readBytes(data, ChunkSize)
+        throw Continue(new BytesParser(bytesLeft - ChunkSize, data))
+
+      } else {
+        throw Continue(this)
+      }
     }
-
-    // if (data eq null) {
-    //   if (buffer.readableBytes >= bytesLeft) {
-    //     state.ret(buffer.readSlice(bytesLeft))
-
-    //   } else if (buffer.readableBytes >= ChunkSize) {
-    //     val newData = ChannelBuffers.buffer(bytesLeft)
-
-    //     buffer.readBytes(newData, ChunkSize)
-    //     state.cont(new BytesParser(bytesLeft - ChunkSize, newData))
-
-    //   } else {
-    //     state.cont(this)
-    //   }
-    // } else {
-    //   if (buffer.readableBytes >= bytesLeft) {
-    //     var newLeft = bytesLeft - buffer.readableBytes
-    //     if (newLeft < 0) newLeft = 0
-
-    //     buffer.readBytes(data, bytesLeft - newLeft)
-    //     state.ret(data)
-
-    //   } else if (buffer.readableBytes >= ChunkSize) {
-    //     buffer.readBytes(data, ChunkSize)
-    //     state.cont(new BytesParser(bytesLeft - ChunkSize, data))
-
-    //   } else {
-    //     state.cont(this)
-    //   }
-    // }
   }
 }
 
 class SkipBytesParser(toRead: Int) extends Parser[Unit] {
-  def decodeRaw(buffer: ChannelBuffer) = {
-    try buffer.skipBytes(toRead) catch {
-      case e: IndexOutOfBoundsException => throw Continue(this)
-    }
-    ()
-    // val readable = buffer.readableBytes
+  import BytesParser._
 
-    // if (readable < toRead) {
-    //   buffer.skipBytes(readable)
-    //   state.cont(new SkipBytesParser(toRead - readable))
-    // } else {
-    //   buffer.skipBytes(toRead)
-    //   state.ret(())
-    // }
+  def decodeRaw(buffer: ChannelBuffer) {
+    val readable = buffer.readableBytes
+
+    if (readable < toRead) {
+      if (readable >= ChunkSize) {
+        buffer.skipBytes(readable)
+        throw Continue(new SkipBytesParser(toRead - readable))
+      } else {
+        throw Continue(this)
+      }
+    } else {
+      buffer.skipBytes(toRead)
+    }
   }
 }

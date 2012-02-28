@@ -54,7 +54,7 @@ object IncrementalParserPerfSpec extends BenchmarkSpecification {
     val bytes = ("*"+count+"\r\n" + ("$6\r\nfoobar\r\n" * count)).getBytes
     val buf1 = ChannelBuffers.wrappedBuffer(bytes)
 
-    for (x <- 1 to 100) {
+    for (x <- 1 to 10) {
       benchmark("test 1", 100000) {
         buf1.resetReaderIndex
         Redis.readMultiBulk.decodeRaw(buf1)

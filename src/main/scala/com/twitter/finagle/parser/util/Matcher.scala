@@ -38,10 +38,10 @@ class DelimiterMatcher(delimiter: Array[Byte]) extends Matcher {
   val bytesNeeded = delimiter.length
 
   def bytesMatching(buffer: ChannelBuffer, offset: Int): Int = {
-    if (buffer.writerIndex < offset + delimiter.length) return -1
 
     var i = 0
     while (i < delimiter.length) {
+      if (buffer.writerIndex <= offset + i) return -1
       if (delimiter(i) != buffer.getByte(offset + i)) return -2
       i += 1
     }
