@@ -178,36 +178,31 @@ object Parsers {
 
   val readByte = new Parser[Byte] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 1) state.ret(buffer.readByte) else state.cont(this)
-      buffer.readByte
+      try buffer.readByte catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
   val readShort = new Parser[Short] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 2) state.ret(buffer.readShort) else state.cont(this)
-      buffer.readShort
+      try buffer.readShort catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
   val readMedium = new Parser[Int] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 3) state.ret(buffer.readMedium) else state.cont(this)
-      buffer.readMedium
+      try buffer.readMedium catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
   val readInt = new Parser[Int] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 4) state.ret(buffer.readInt) else state.cont(this)
-      buffer.readInt
+      try buffer.readInt catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
   val readLong = new Parser[Long] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 8) state.ret(buffer.readLong) else state.cont(this)
-      buffer.readLong
+      try buffer.readLong catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
@@ -216,29 +211,25 @@ object Parsers {
 
   val readUnsignedByte = new Parser[Short] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 1) state.ret(buffer.readUnsignedByte) else state.cont(this)
-      buffer.readUnsignedByte
+      try buffer.readUnsignedByte catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
   val readUnsignedShort = new Parser[Int] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 2) state.ret(buffer.readUnsignedShort) else state.cont(this)
-      buffer.readUnsignedShort
+      try buffer.readUnsignedShort catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
   val readUnsignedMedium = new Parser[Int] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 3) state.ret(buffer.readUnsignedMedium) else state.cont(this)
-      buffer.readUnsignedMedium
+      try buffer.readUnsignedMedium catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
   val readUnsignedInt = new Parser[Long] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 4) state.ret(buffer.readUnsignedInt) else state.cont(this)
-      buffer.readUnsignedInt
+      try buffer.readUnsignedInt catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
@@ -247,22 +238,19 @@ object Parsers {
 
   val readChar = new Parser[Char] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 2) state.ret(buffer.readChar) else state.cont(this)
-      buffer.readChar
+      try buffer.readChar catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
   val readDouble = new Parser[Double] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 8) state.ret(buffer.readDouble) else state.cont(this)
-      buffer.readDouble
+      try buffer.readDouble catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 
   val readFloat = new Parser[Float] {
     def decodeRaw(buffer: ChannelBuffer) = {
-      //if (buffer.readableBytes >= 4) state.ret(buffer.readFloat) else state.cont(this)
-      buffer.readFloat
+      try buffer.readFloat catch { case e: IndexOutOfBoundsException => throw Continue(this) }
     }
   }
 }

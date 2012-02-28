@@ -22,12 +22,9 @@ class DelimiterParser(matcher: Matcher) extends Parser[ChannelBuffer] {
   def decodeRaw(buffer: ChannelBuffer) = {
     val frameLength = buffer.bytesBefore(matcher)
 
+    if (frameLength < 0) throw Continue(this)
+
     buffer.readSlice(frameLength)
-    // if (frameLength < 0) {
-    //   state.cont(this)
-    // } else {
-    //   state.ret(buffer.readSlice(frameLength))
-    // }
   }
 }
 
@@ -40,16 +37,10 @@ class ConsumingDelimiterParser(matcher: Matcher) extends Parser[ChannelBuffer] {
   def decodeRaw(buffer: ChannelBuffer) = {
     val frameLength = buffer.bytesBefore(matcher)
 
-    val frame = buffer.readSlice(frameLength)
-    buffer.skipBytes(matcher.bytesMatching(buffer, buffer.readerIndex))
-    frame
+    if (frameLength < 0) throw Continue(this)
 
-    // if (frameLength < 0) {
-    //   state.cont(this)
-    // } else {
-    //   val frame = buffer.readSlice(frameLength)
-    //   buffer.skipBytes(matcher.bytesMatching(buffer, buffer.readerIndex))
-    //   state.ret(frame)
-    // }
+    val rv = buffer.readSlice(frameLength)
+    buffer.skipBytes(matcher.bytesMatching(buffer, buffer.readerIndex))
+    rv
   }
 }

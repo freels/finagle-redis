@@ -10,12 +10,12 @@ class MatchParser(matcher: Matcher) extends Parser[Int] {
 
     if (size < 0) {
       if (size == -1) {
-        sys.error("Match inconclusive.")
+        throw Continue(this)
       } else {
-        sys.error("Match failed.")
+        throw Fail("Matcher %s failed." format matcher)
       }
-    } else {
-      size
     }
+
+    size
   }
 }
