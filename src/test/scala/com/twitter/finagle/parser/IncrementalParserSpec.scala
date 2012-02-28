@@ -7,7 +7,7 @@ import com.twitter.finagle.parser.test._
 
 
 object ParserSpec extends ParserSpecification {
-  import Parsers._
+  import Parser._
 
   "DelimiterParser" in {
     val parser = readTo("\r\n") map asString
@@ -95,8 +95,8 @@ object ParserSpec extends ParserSpecification {
     "fail" in {
       val err = "whoops"
 
-      Parsers.fail(err) mustParse ""    andFail err readingBytes(0)
-      Parsers.fail(err) mustParse "foo" andFail err readingBytes(0)
+      Parser.fail(err) mustParse ""    andFail err readingBytes(0)
+      Parser.fail(err) mustParse "foo" andFail err readingBytes(0)
     }
 
     "success" in {
@@ -121,7 +121,7 @@ object ParserSpec extends ParserSpecification {
     }
 
     "accept" in {
-      val parser = Parsers.accept("foo") map asString
+      val parser = Parser.accept("foo") map asString
 
       parser mustParse "f"    andContinue()    readingBytes(0)
       parser mustParse "fo"   andContinue()    readingBytes(0)
@@ -152,7 +152,7 @@ object ParserSpec extends ParserSpecification {
     }
 
     "rep" in {
-      val parser = rep(Parsers.accept("foo") map asString)
+      val parser = rep(Parser.accept("foo") map asString)
 
       parser mustParse "xx" andReturn List()
       parser mustParse "foox" andReturn List("foo")
@@ -160,7 +160,7 @@ object ParserSpec extends ParserSpecification {
     }
 
     "repsep" in {
-      val parser = repsep(Parsers.accept("foo") map asString, " ")
+      val parser = repsep(Parser.accept("foo") map asString, " ")
 
       parser mustParse " dddddd" andReturn List()
       parser mustParse "fooddddd" andReturn List("foo")

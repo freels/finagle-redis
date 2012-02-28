@@ -6,25 +6,25 @@ import org.jboss.netty.handler.codec.frame.FrameDecoder
 import com.twitter.finagle.parser.ParseException
 
 
-class ParserDecoder[+Output](parser: Parser[Output]) extends FrameDecoder {
+class ParserDecoder[+Out](parser: Parser[Out]) extends FrameDecoder {
   private[this] var state = parser
 
-  def start() {
+  def reset() {
     state = parser
   }
 
   def decode(ctx: ChannelHandlerContext, channel: Channel, buffer: ChannelBuffer) = {
     state.decode(buffer) match {
       case e: Fail => {
-        start()
+        reset()
         throw new ParseException(e.message)
       }
       case e: Error => {
-        start()
+        reset()
         throw new ParseException(e.message)
       }
       case Return(out) => {
-        start()
+        reset()
         out.asInstanceOf[AnyRef]
       }
       case Continue(next) => {
