@@ -3,8 +3,6 @@ package com.twitter.finagle.parser.incremental
 import org.jboss.netty.channel._
 import org.jboss.netty.buffer.ChannelBuffer
 import org.jboss.netty.handler.codec.frame.FrameDecoder
-import com.twitter.finagle.parser.ParseException
-
 
 class ParserDecoder[+Out](parser: Parser[Out]) extends FrameDecoder {
   private[this] var state = parser
@@ -17,11 +15,13 @@ class ParserDecoder[+Out](parser: Parser[Out]) extends FrameDecoder {
     state.decode(buffer) match {
       case e: Fail => {
         reset()
-        throw new ParseException(e.message)
+        e.realFillInStackTrace()
+        throw e
       }
       case e: Error => {
         reset()
-        throw new ParseException(e.message)
+        e.realFillInStackTrace()
+        throw e
       }
       case Return(out) => {
         reset()

@@ -4,20 +4,26 @@ package com.twitter.finagle.parser.incremental
 
 sealed trait ParseResult[+Out]
 
-abstract class BlankThrowable extends Throwable {
-  override def fillInStackTrace(): Throwable = null
-}
+abstract class ParseException extends Throwable {
+  def message: String
 
-case class Continue[+Out](next: Parser[Out]) extends BlankThrowable with ParseResult[Out]
+  override def fillInStackTrace(): Throwable = null
+
+  def realFillInStackTrace() = super.fillInStackTrace()
+
+  override def getMessage() = message
+}
 
 case class Return[@specialized +Out](ret: Out) extends ParseResult[Out]
 
-case class Fail(messageString: () => String) extends BlankThrowable with ParseResult[Nothing] {
-  override def getMessage() = messageString()
+case class Continue[+Out](next: Parser[Out]) extends ParseException with ParseResult[Out] {
+  def message = "Insufficient data."
+}
+
+case class Fail(messageString: () => String) extends ParseException with ParseResult[Nothing] {
   def message = messageString()
 }
 
-case class Error(messageString: () => String) extends BlankThrowable with ParseResult[Nothing] {
-  override def getMessage() = messageString()
-  def message = getMessage()
+case class Error(messageString: () => String) extends ParseException with ParseResult[Nothing] {
+  def message = messageString()
 }
