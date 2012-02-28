@@ -8,7 +8,7 @@ import com.twitter.finagle.parser.util._
 
 object Redis {
   import Parsers._
-  import DecodingHelpers._
+  //import DecodingHelpers._
 
   trait Reply
 
