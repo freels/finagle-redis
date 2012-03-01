@@ -44,21 +44,14 @@ class BytesParser(bytesLeft: Int, data: ChannelBuffer = null) extends Parser[Cha
   }
 }
 
-class SkipBytesParser(toRead: Int) extends Parser[Unit] {
+class SkipBytesParser(toRead: Int) extends Parser[Int] {
   import BytesParser._
 
-  def decodeRaw(buffer: ChannelBuffer) {
-    val readable = buffer.readableBytes
-
-    if (readable < toRead) {
-      if (readable >= ChunkSize) {
-        buffer.skipBytes(readable)
-        throw Continue(new SkipBytesParser(toRead - readable))
-      } else {
-        throw Continue(this)
-      }
-    } else {
-      buffer.skipBytes(toRead)
+  def decodeRaw(buffer: ChannelBuffer): Int = {
+    try buffer.skipBytes(toRead) catch {
+      case e: IndexOutOfBoundsException => throw Continue(this)
     }
+
+    toRead
   }
 }
