@@ -118,15 +118,15 @@ object ParserSpec extends ParserSpecification {
     }
 
     "accept" in {
-      val parser = Parser.accept("foo") map asString
+      val parser = Parser.accept("foo")
 
-      parser mustParse "f"    andContinue()    readingBytes(0)
-      parser mustParse "fo"   andContinue()    readingBytes(0)
-      parser mustParse "foo"  andReturn("foo") readingBytes(3)
-      parser mustParse "foox" andReturn("foo") readingBytes(3)
-      parser mustParse "x"    andFail()        readingBytes(0)
-      parser mustParse "fx"   andFail()        readingBytes(0)
-      parser mustParse "fox"  andFail()        readingBytes(0)
+      parser mustParse "f"    andContinue() readingBytes(0)
+      parser mustParse "fo"   andContinue() readingBytes(0)
+      parser mustParse "foo"  andReturn(3)  readingBytes(3)
+      parser mustParse "foox" andReturn(3)  readingBytes(3)
+      parser mustParse "x"    andFail()     readingBytes(0)
+      parser mustParse "fx"   andFail()     readingBytes(0)
+      parser mustParse "fox"  andFail()     readingBytes(0)
    }
 
     "choice" in {
@@ -149,19 +149,19 @@ object ParserSpec extends ParserSpecification {
     }
 
     "rep" in {
-      val parser = rep(Parser.accept("foo") map asString)
+      val parser = rep(Parser.accept("foo"))
 
       parser mustParse "xx" andReturn List()
-      parser mustParse "foox" andReturn List("foo")
-      parser mustParse "foofoox" andReturn List("foo", "foo")
+      parser mustParse "foox" andReturn List(3)
+      parser mustParse "foofoox" andReturn List(3, 3)
     }
 
     "repsep" in {
-      val parser = repsep(Parser.accept("foo") map asString, " ")
+      val parser = repsep(Parser.accept("foo"), " ")
 
       parser mustParse " dddddd" andReturn List()
-      parser mustParse "fooddddd" andReturn List("foo")
-      parser mustParse "foo foodddddd" andReturn List("foo", "foo")
+      parser mustParse "fooddddd" andReturn List(3)
+      parser mustParse "foo foodddddd" andReturn List(3, 3)
     }
 
     "readByte" in {

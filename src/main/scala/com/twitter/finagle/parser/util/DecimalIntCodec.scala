@@ -1,8 +1,6 @@
 package com.twitter.finagle.parser.util
 
-import com.twitter.finagle.parser.ParseException
 import org.jboss.netty.buffer.{ChannelBuffers, ChannelBufferIndexFinder, ChannelBuffer}
-
 
 object DecimalIntCodec {
   val AsciiZero   = 48.toByte

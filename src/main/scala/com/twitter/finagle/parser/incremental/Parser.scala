@@ -164,12 +164,12 @@ abstract class Parser[+Out] {
   /**
    * Returns a parser that discards the result of this and returns `value`.
    */
-  def then[T](value: T): Parser[T] = new ConstParser(this, value)
+  def thenReturn[T](value: T): Parser[T] = new ConstParser(this, value)
 
   /**
    * Returns a parser that discards the result of `skipped` and returns the result of parsing this.
    */
-  def thenSkip(skipped: Parser[_]): Parser[Out] = this flatMap { rv => skipped then rv }
+  def thenSkip(skipped: Parser[_]): Parser[Out] = this flatMap { rv => skipped thenReturn rv }
 
   def and[T, C <: ChainableTuple](rhs: Parser[T])(implicit chn: Out => C): Parser[C#Next[T]] = {
     for (tup <- this; next <- rhs) yield chn(tup).append(next)
@@ -214,9 +214,9 @@ abstract class Parser[+Out] {
   def >>=[T](f: Out => Parser[T]) = this flatMap f
 
   /**
-   * Equivalent to `this then value`
+   * Equivalent to `this thenReturn value`
    */
-  def ^[T](value: T) = this then value
+  def ^[T](value: T) = this thenReturn value
 
   /**
    * Equivalent to `this map f
@@ -622,30 +622,31 @@ object Parser {
    *
    * Returns a ChannelBuffer of the bytes matched by `m`.
    */
-  def accept(m: Matcher) = new MatchParser(m) flatMap { readBytes(_) }
-
-  implicit def acceptString(choice: String) = {
-    val bytes = choice.getBytes("US-ASCII")
-    new MatchParser(new BytesMatcher(bytes)) then skipBytes(bytes.size)
-  }
+  def accept(m: Matcher) = new ConsumingMatchParser(m)
 
   /**
    * Succeed parsing if the input buffer starts with `choice`.
    *
-   * Returns a ChannelBuffer of the bytes matched by `choice`.
+   * Returns the length of the match.
    */
-  def accept(choice: String): Parser[ChannelBuffer] = {
-    accept(new BytesMatcher(choice))
-    // val m = new MatchParser(new BytesMatcher(choice))
-    // m then skipBytes(choice.size) then success(choice)
+  implicit def accept(choice: String): Parser[Int] = {
+    if (choice.length == 1) {
+      val bytes = choice.getBytes("US-ASCII")
+      new Match1ByteParser(bytes(0))
+    } else if (choice.length == 2) {
+      val bytes = choice.getBytes("US-ASCII")
+      new Match2ByteParser(bytes(0), bytes(1))
+    } else {
+      accept(new BytesMatcher(choice))
+    }
   }
 
   /**
    * Succeed parsing if the input buffer starts with any of the alternatives.
    *
-   * Returns a ChannelBuffer of the bytes matched.
+   * Returns the length of the match.
    */
-  def accept(first: String, second: String, rest: String*): Parser[ChannelBuffer] = {
+  def accept(first: String, second: String, rest: String*): Parser[Int] = {
     accept(AlternateMatcher(first +: second +: rest))
   }
 

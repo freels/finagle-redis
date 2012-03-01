@@ -15,8 +15,8 @@ object Redis {
     case class Status(msg: ChannelBuffer) extends Reply
     case class Error(msg: ChannelBuffer) extends Reply
     case class Integer(i: Int) extends Reply
-    case class Bulk(bytes: Option[ChannelBuffer]) extends Reply
-    case class MultiBulk(bulks: Option[Seq[Bulk]]) extends Reply
+    case class Bulk(bytes: ChannelBuffer) extends Reply
+    case class MultiBulk(bulks: Seq[Bulk]) extends Reply
   }
 
   def decodeInt(buf: ChannelBuffer): Int = {
@@ -46,27 +46,31 @@ object Redis {
     0
   }
 
-  val CRLF       = acceptString("\r\n")
-  val readInt    = withRawBuffer { decodeInt(_) }
-  val readLine   = readTo("\r\n")
-  val returnNull = success(null)
+  val CRLF     = skipBytes(2)//accept("\r\n")
+  val readInt  = withRawBuffer { decodeInt(_) }
+  val readLine = readTo("\r\n")
 
-  val readStatusReply = "+" then readLine map { Reply.Status(_) }
-
-  val readErrorReply = "-" then readLine map { Reply.Error(_) }
-
-  val readIntegerReply = ":" then readInt map { Reply.Integer(_) }
-
-  val readBulkReply = "$" then readInt flatMap { count =>
-    if (count == -1) returnNull else readBytes(count)
-  } thenSkip CRLF map { bulk =>
-    Reply.Bulk(Option(bulk))
+  val readStatusReply    = "+" then readLine map { Reply.Status(_) }
+  val readErrorReply     = "-" then readLine map { Reply.Error(_) }
+  val readIntegerReply   = ":" then readInt map { Reply.Integer(_) }
+  val readBulkReply      = "$" then readInt flatMap { count =>
+    if (count == -1) {
+      success(null)
+    } else {
+      readBytes(count) thenSkip CRLF
+    }
+  } map { b =>
+    Reply.Bulk(b)
   }
 
   val readMultiBulkReply = "*" then readInt flatMap { count =>
-    if (count == -1) returnNull else repN(count, readBulkReply)
+    if (count == -1) {
+      success(null)
+    } else {
+      repN(count, readBulkReply)
+    }
   } map { bulks =>
-    Reply.MultiBulk(Option(bulks))
+    Reply.MultiBulk(bulks)
   }
 
   val readReply: Parser[Reply] = {
